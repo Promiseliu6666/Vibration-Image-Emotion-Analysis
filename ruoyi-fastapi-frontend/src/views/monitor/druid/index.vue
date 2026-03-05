@@ -1,5 +1,4 @@
-
-  <template>
+<template>
     <div class="vibra-monitor">
       <!-- 标题与控制栏 -->
       <div class="header">
