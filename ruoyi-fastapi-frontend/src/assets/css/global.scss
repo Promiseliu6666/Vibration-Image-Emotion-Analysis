@@ -1,0 +1,23 @@
+/* 全局统一输入框、下拉框美化 */
+:deep(.el-input__wrapper),
+:deep(.el-select .el-input__wrapper),
+:deep(.el-date-editor.el-input__wrapper) {
+  height: 48px !important;
+  border-radius: 10px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s;
+
+  &:hover {
+    box-shadow: 0 0 0 4px rgba(64, 158, 255, 0.15);
+  }
+
+  &.is-focus {
+    box-shadow: 0 0 0 4px rgba(64, 158, 255, 0.25) !important;
+  }
+}
+
+:deep(.el-select-dropdown),
+:deep(.el-picker-panel) {
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12) !important;
+}

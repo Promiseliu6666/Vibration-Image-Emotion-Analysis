@@ -1,0 +1,2 @@
+class AnalysisNotFoundError(ValueError):
+    pass
