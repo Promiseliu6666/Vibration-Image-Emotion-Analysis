@@ -1,2 +1,0 @@
-class GroupNotFoundError(ValueError):
-    pass
