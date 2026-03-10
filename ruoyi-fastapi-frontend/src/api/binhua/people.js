@@ -1,47 +1,54 @@
+// people.js
 import request from '@/utils/request'
 
-export function listPeople(params) {
+// 查询人员列表（分页）
+export function listPeople(query) {
   return request({
-    url: '/people/list',  // 保持原样（已有 / 开头）
+    url: '/people/list',
     method: 'get',
-    params
+    params: query
   })
 }
 
+// 新增人员
 export function addPeople(data) {
   return request({
-    url: '/people/',       // 保持原样
+    url: '/people/',
     method: 'post',
     data
   })
 }
 
+// 修改人员
 export function updatePeople(id, data) {
   return request({
-    url: `/people/${id}`,  // 保持原样
+    url: `/people/${id}`,
     method: 'put',
     data
   })
 }
 
+// 删除人员
 export function delPeople(id) {
   return request({
-    url: `/people/${id}`,  // 保持原样
+    url: `/people/${id}`,
     method: 'delete'
   })
 }
 
+// 人脸比对（单次）
 export function faceCompare(data) {
   return request({
-    url: '/people/face-compare',  // 保持原样
+    url: '/people/face-compare',
     method: 'post',
     data
   })
 }
 
+// 人脸比对（全部/批量）
 export function faceCompareAll(data) {
   return request({
-    url: '/people/face-compare-all',  // 保持原样
+    url: '/people/face-compare-all',
     method: 'post',
     data
   })

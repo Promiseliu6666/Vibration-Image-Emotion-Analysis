@@ -1,20 +1,3 @@
-# Optimized hik_vision.py: 使用 OpenCV DNN 进行人脸检测 + 裁剪后服务端识别
-# 修改点总结：
-# 1. 一旦头部稳定锁定（analyzing=True），人脸框永久固定为“锚框”（locked_rect），不再进行任何新的目标检测（彻底停止检测逻辑）。
-# 2. 绘制逻辑调整：
-#    - 未锁定前：绘制绿色细框（表示正在检测/跟踪）。
-#    - 锁定后：绘制蓝色粗框（表示固定锚框），并在标签中添加"[Locked]"标识。
-#    - 移除重复的绿色矩形绘制，只保留统一的 draw_face_recognition 绘制。
-# 3. 人脸识别只在未锁定阶段进行（锁定后不再重复识别，只使用锁定时的身份结果，专注 e1-e14 振动分析）。
-# 4. 添加人脸丢失/大移动检测机制（锁定后每20帧快速检查一次，若人脸丢失或中心偏移>100像素则自动重置）。
-# 5. 稳定判定逻辑只在未锁定阶段执行，锁定后不再更新框位置。
-# 6. 振动分析保持原有优化（积累5帧、每3帧分析一次）。
-# 7. 新增全局共享 cap + 客户端计数，确保页面关闭后彻底释放摄像头和停止分析。
-# 8. 修改保存逻辑，使 happiness_index、happiness_level 和 safety_risk 与前端幸福卡片一致：
-#    - happiness_index 基于 e12（假设 0-100 范围）
-#    - happiness_level: >=80 "幸福达标", >=60 "幸福待提升", else "幸福预警"
-#    - safety_risk: >=70 "低风险", >=40 "中风险", else "高风险"
-
 import json
 import cv2
 import numpy as np
@@ -131,6 +114,8 @@ def get_camera_cap(source: str):
 
     else:
         raise HTTPException(status_code=400, detail="无效的source参数")
+
+
 # ==================== 全局共享资源 ====================
 global_caps = {"local": None, "rtsp": None}
 active_clients = {"local": 0, "rtsp": 0}
@@ -154,9 +139,10 @@ stable_state = {
         "match_similarity": 0.0,
         "last_detected_rect": None,
         "identified": False,
-        "analysis_start_time": None,  # 添加分析开始时间
-        "analysis_duration": 10.0,  # 分析持续时间（秒）
-        "analysis_completed": False  # 添加分析完成标志
+        "analysis_start_time": None,
+        "analysis_duration": 10.0,
+        "analysis_completed": False,
+        "person_id": ""
     },
     "rtsp": {
         "stable_count": 0, "prev_center": None, "prev_size": None,
@@ -165,9 +151,10 @@ stable_state = {
         "match_similarity": 0.0,
         "last_detected_rect": None,
         "identified": False,
-        "analysis_start_time": None,  # 添加分析开始时间
-        "analysis_duration": 10.0,  # 分析持续时间（秒）
-        "analysis_completed": False  # 添加分析完成标志
+        "analysis_start_time": None,
+        "analysis_duration": 10.0,
+        "analysis_completed": False,
+        "person_id": ""
     }
 }
 
@@ -200,6 +187,7 @@ async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, result
                 person = result.scalars().first()
                 if person:
                     person_id = person.id
+                    state["person_id"] = person_id  # 保存person_id到状态
             except Exception as e:
                 print(f"[{source}] 获取person_id时发生异常: {e}")
                 person_id = None
@@ -267,7 +255,8 @@ def reset_analysis_state(source: str):
             "last_detected_rect": None,
             "identified": False,
             "analysis_start_time": None,
-            "analysis_completed": False
+            "analysis_completed": False,
+            "person_id": ""  # 重置person_id
         })
         latest_results[source] = {f"e{i}": 0.0 for i in range(1, 15)}
 
@@ -292,19 +281,43 @@ async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, 
             best_match = compare_results[0]
             name = best_match['name']
             similarity = best_match['similarity']
+
+            # 获取并保存person_id
             if name != "Unknown":
-                state["identified"] = True
+                try:
+                    from module_xuzhou.entity.do.people_do import PeopleFace
+                    from sqlalchemy import select
+                    result = await db.execute(
+                        select(PeopleFace)
+                        .where(
+                            PeopleFace.name == name,
+                            PeopleFace.group_id == 1,
+                            PeopleFace.is_deleted == False
+                        )
+                        .limit(1)
+                    )
+                    person = result.scalars().first()
+                    if person:
+                        state["person_id"] = person.id  # 保存person_id到状态
+                except Exception as e:
+                    print(f"[{source}] 获取person_id时发生异常: {e}")
+                    state["person_id"] = ""
+
+            state["identified"] = True
             return name, similarity
         else:
+            state["person_id"] = ""  # 未识别到则清空person_id
             return "Unknown", 0.0
 
     except Exception as e:
         print(f"[人脸识别] 异常: {e}")
         traceback.print_exc()
+        state["person_id"] = ""
         return None, 0.0
 
 
-def draw_face_recognition(frame: np.ndarray, name: str, similarity: float, rect: tuple, is_locked: bool = False, remaining_time: float = None):
+def draw_face_recognition(frame: np.ndarray, name: str, similarity: float, rect: tuple, is_locked: bool = False,
+                          remaining_time: float = None):
     if rect is None:
         return
     x, y, w, h = rect
@@ -312,20 +325,25 @@ def draw_face_recognition(frame: np.ndarray, name: str, similarity: float, rect:
     if is_locked:
         color = (255, 0, 0)  # 蓝色粗框
         thickness = 3
-        label = f"{name} ({similarity:.2f}) [Locked]" if name != "Unknown" else "Unknown [Locked]"
-        # 添加倒计时显示
+        # ✅ 只保留锁定标识，去掉姓名和相似度
+        label = "[Locked]"
         if remaining_time is not None:
-            label = f"{label} | {remaining_time:.1f}s"
+            label = f"[Locked] | {remaining_time:.1f}s"
     else:
         color = (0, 255, 0)  # 绿色细框
         thickness = 2
-        label = f"{name} ({similarity:.2f})" if name != "Unknown" else "Unknown"
+        # ✅ 去掉所有文字，只画框
+        label = ""
 
+    # 绘制人脸框
     cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
-    text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-    cv2.rectangle(frame, (x, y - 25), (x + text_size[0] + 10, y), (0, 0, 255), cv2.FILLED)
-    cv2.putText(frame, label, (x + 5, y - 5),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    # ✅ 只有当label不为空时，才绘制文字背景和文字
+    if label.strip():
+        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+        cv2.rectangle(frame, (x, y - 25), (x + text_size[0] + 10, y), (0, 0, 255), cv2.FILLED)
+        cv2.putText(frame, label, (x + 5, y - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
 
 def detect_face(frame: np.ndarray):
@@ -476,6 +494,7 @@ async def generate_video_stream(
                         else:
                             state["matched_person"] = "Unknown"
                             state["match_similarity"] = 0.0
+                            state["person_id"] = ""
 
                     # 计算剩余时间
                     remaining_time = None
@@ -501,7 +520,8 @@ async def generate_video_stream(
                                           remaining_time=remaining_time)
 
                     # 振动分析（仅在分析未完成时进行）
-                    if state["analyzing"] and not state["analysis_completed"] and state["frame_count"] % 3 == 0 and state['matched_person'] != "Unknown":
+                    if state["analyzing"] and not state["analysis_completed"] and state["frame_count"] % 3 == 0 and \
+                            state['matched_person'] != "Unknown":
                         try:
                             fps = cap.get(cv2.CAP_PROP_FPS) or 60
                             analysis_results = await asyncio.to_thread(
@@ -543,60 +563,71 @@ async def generate_video_stream(
     return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
-# ==================== 返回实时参数 ====================
+# ==================== 返回实时参数（适配前端显示） ====================
 @videoController.get("/results")
 async def get_analysis_results(source: str = Query(None)):
+    # 处理指定source的情况
     if source and source in stable_state:
         state = stable_state[source]
-        # 如果分析已完成，返回固定结果
+        # 处理分析完成的情况
         if state["analysis_completed"]:
             return {
                 "analyzing": True,  # 保持analyzing=True以兼容前端显示
                 "completed": True,
                 "source": source,
                 "results": {k: float(v) for k, v in latest_results[source].items()},
-                "matched_person": state["matched_person"],
-                "similarity": state["match_similarity"],
+                "matched_person": state["matched_person"] or "Unknown",
+                "person_id": state["person_id"] or "未知ID",  # 确保返回person_id
+                "similarity": state["match_similarity"] or 0.0,
                 "message": "分析已完成，结果已固定"
             }
-        # 如果正在分析，返回实时结果
+        # 处理正在分析的情况
         elif state["analyzing"]:
-            print(latest_results[source].items())
             return {
                 "analyzing": True,
                 "completed": False,
                 "source": source,
                 "results": {k: float(v) for k, v in latest_results[source].items()},
-                "matched_person": state["matched_person"],
-                "similarity": state["match_similarity"]
+                "matched_person": state["matched_person"] or "Unknown",
+                "person_id": state["person_id"] or "未知ID",  # 确保返回person_id
+                "similarity": state["match_similarity"] or 0.0
             }
+        # 处理未分析的情况（返回默认人员信息）
         else:
             return {
                 "analyzing": False,
                 "completed": False,
                 "message": "当前无有效分析（摄像头未连接或人脸未稳定）",
                 "results": {f"e{i}": 0.0 for i in range(1, 15)},
-                "matched_person": None
+                "matched_person": "未识别",
+                "person_id": "未知ID",
+                "similarity": 0.0
             }
 
+    # 处理未指定source的情况
     active_sources = [s for s in stable_state if stable_state[s]["analyzing"]]
     if active_sources:
         s = active_sources[0]
+        state = stable_state[s]
         return {
             "analyzing": True,
             "completed": False,
             "source": s,
             "results": {k: float(v) for k, v in latest_results[s].items()},
-            "matched_person": stable_state[s]["matched_person"],
-            "similarity": stable_state[s]["match_similarity"]
+            "matched_person": state["matched_person"] or "Unknown",
+            "person_id": state["person_id"] or "未知ID",
+            "similarity": state["match_similarity"] or 0.0
         }
 
+    # 无活跃源时返回默认值
     return {
         "analyzing": False,
         "completed": False,
         "message": "无任何摄像头正在分析",
         "results": {f"e{i}": 0.0 for i in range(1, 15)},
-        "matched_person": None
+        "matched_person": "未识别",
+        "person_id": "未知ID",
+        "similarity": 0.0
     }
 
 
@@ -614,4 +645,13 @@ async def reset_analysis(source: str = Query(..., description="local 或 rtsp"))
         print(f"[{source}] 重置接口强制释放摄像头")
 
     reset_analysis_state(source)
-    return {"status": "success", "message": f"{source}摄像头已重置并释放资源"}
+    return {
+        "status": "success",
+        "message": f"{source}摄像头已重置并释放资源",
+        "data": {
+            "analyzing": False,
+            "matched_person": None,
+            "person_id": "",
+            "similarity": 0.0
+        }
+    }

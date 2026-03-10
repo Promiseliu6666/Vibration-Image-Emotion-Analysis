@@ -1,28 +1,16 @@
+// analysis.js
 import request from '@/utils/request'
 
-export function listAnalysis(params) {
-  // 手动映射为后端期望的 snake_case 参数名（解决搜索过滤不生效）
-  const mappedParams = {
-    page_num: params.pageNum,
-    page_size: params.pageSize,
-    person_id: params.personId ?? undefined,
-    source: params.source ?? undefined,
-  }
-
-  // 清理 undefined/null/空字符串（避免传无效参数）
-  Object.keys(mappedParams).forEach(key => {
-    if (mappedParams[key] === undefined || mappedParams[key] === null || mappedParams[key] === '') {
-      delete mappedParams[key]
-    }
-  })
-
+// 查询分析记录列表（分页）
+export function listAnalysis(query) {
   return request({
     url: '/analysis/list',
     method: 'get',
-    params: mappedParams
+    params: query
   })
 }
 
+// 查询某人员的分析历史记录
 export function getAnalysisHistory(personId) {
   return request({
     url: `/analysis/person/${personId}`,
@@ -30,6 +18,7 @@ export function getAnalysisHistory(personId) {
   })
 }
 
+// 查询单条分析记录详情
 export function getAnalysis(id) {
   return request({
     url: `/analysis/${id}`,
@@ -37,6 +26,7 @@ export function getAnalysis(id) {
   })
 }
 
+// 新增分析记录
 export function addAnalysis(data) {
   return request({
     url: '/analysis/',
@@ -45,6 +35,7 @@ export function addAnalysis(data) {
   })
 }
 
+// 修改分析记录
 export function updateAnalysis(id, data) {
   return request({
     url: `/analysis/${id}`,
@@ -53,6 +44,7 @@ export function updateAnalysis(id, data) {
   })
 }
 
+// 删除单条分析记录
 export function delAnalysis(id) {
   return request({
     url: `/analysis/${id}`,
@@ -60,6 +52,7 @@ export function delAnalysis(id) {
   })
 }
 
+// 批量删除分析记录
 export function batchDelAnalysis(data) {
   return request({
     url: '/analysis/batch-delete',

@@ -36,6 +36,7 @@ async def get_analysis_list(
     分页查询分析记录列表
     支持 person_id、source 过滤
     """
+    logger.info(f"接收到的分页参数: pageNum={query.page_num}, pageSize={query.page_size}")
     result = await BinhuaAnalysisService.get_analysis_list_services(
         query_db, query, is_page=True
     )
