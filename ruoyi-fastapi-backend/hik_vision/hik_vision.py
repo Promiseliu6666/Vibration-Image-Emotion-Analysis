@@ -10,6 +10,10 @@
 # 5. 稳定判定逻辑只在未锁定阶段执行，锁定后不再更新框位置。
 # 6. 振动分析保持原有优化（积累5帧、每3帧分析一次）。
 # 7. 新增全局共享 cap + 客户端计数，确保页面关闭后彻底释放摄像头和停止分析。
+# 8. 修改保存逻辑，使 happiness_index、happiness_level 和 safety_risk 与前端幸福卡片一致：
+#    - happiness_index 基于 e12（假设 0-100 范围）
+#    - happiness_level: >=80 "幸福达标", >=60 "幸福待提升", else "幸福预警"
+#    - safety_risk: >=70 "低风险", >=40 "中风险", else "高风险"
 
 import json
 import cv2
@@ -28,6 +32,8 @@ import face_recognition  # 仅用于兼容性，实际未在检测中使用
 from hik_vision.Vibration_image_algorithm import VibraimageCore
 from config.get_db import get_db
 from module_xuzhou.service.people_service import PeopleService, FaceFeatureExtractor
+from module_xuzhou.dao.analysis_dao import BinhuaAnalysisDao
+from module_xuzhou.entity.vo.analysis_vo import BinhuaAnalysisModel
 
 videoController = APIRouter(
     prefix='/video',
@@ -147,7 +153,10 @@ stable_state = {
         "matched_person": None, "feature_extracted": False,
         "match_similarity": 0.0,
         "last_detected_rect": None,
-        "identified": False
+        "identified": False,
+        "analysis_start_time": None,  # 添加分析开始时间
+        "analysis_duration": 10.0,  # 分析持续时间（秒）
+        "analysis_completed": False  # 添加分析完成标志
     },
     "rtsp": {
         "stable_count": 0, "prev_center": None, "prev_size": None,
@@ -155,9 +164,96 @@ stable_state = {
         "matched_person": None, "feature_extracted": False,
         "match_similarity": 0.0,
         "last_detected_rect": None,
-        "identified": False
+        "identified": False,
+        "analysis_start_time": None,  # 添加分析开始时间
+        "analysis_duration": 10.0,  # 分析持续时间（秒）
+        "analysis_completed": False  # 添加分析完成标志
     }
 }
+
+
+async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, results: dict):
+    """
+    将分析结果保存到数据库
+    修改为与前端一致的计算逻辑：
+    - happiness_index = e12 (假设 0-100 范围)
+    - happiness_level 基于 happiness_index: >=80 "幸福达标", >=60 "幸福待提升", else "幸福预警"
+    - safety_risk 基于 happiness_index: >=70 "低风险", >=40 "中风险", else "高风险"
+    """
+    try:
+        # 获取person_id
+        person_id = None
+        if state["matched_person"] and state["matched_person"] != "Unknown":
+            # 直接通过人名查询获取person_id
+            try:
+                from module_xuzhou.entity.do.people_do import PeopleFace
+                from sqlalchemy import select
+                result = await db.execute(
+                    select(PeopleFace)
+                    .where(
+                        PeopleFace.name == state["matched_person"],
+                        PeopleFace.group_id == 1,
+                        PeopleFace.is_deleted == False
+                    )
+                    .limit(1)
+                )
+                person = result.scalars().first()
+                if person:
+                    person_id = person.id
+            except Exception as e:
+                print(f"[{source}] 获取person_id时发生异常: {e}")
+                person_id = None
+
+        # 与前端一致：使用 e12 作为 happiness_index（假设单位为 0-100）
+        happiness_index = results.get("e12", 0.0)
+
+        # 与前端一致的幸福水平计算
+        if happiness_index >= 80:
+            happiness_level = "幸福达标"
+        elif happiness_index >= 60:
+            happiness_level = "幸福待提升"
+        else:
+            happiness_level = "幸福预警"
+
+        # 与前端一致的安全风险计算
+        if happiness_index >= 70:
+            safety_risk = "低风险"
+        elif happiness_index >= 40:
+            safety_risk = "中风险"
+        else:
+            safety_risk = "高风险"
+
+        # 创建分析记录
+        analysis_model = BinhuaAnalysisModel(
+            source=source,
+            person_name=state["matched_person"] or "Unknown",
+            person_id=person_id,
+            e1=results.get("e1", 0.0),
+            e2=results.get("e2", 0.0),
+            e3=results.get("e3", 0.0),
+            e4=results.get("e4", 0.0),
+            e5=results.get("e5", 0.0),
+            e6=results.get("e6", 0.0),
+            e7=results.get("e7", 0.0),
+            e8=results.get("e8", 0.0),
+            e9=results.get("e9", 0.0),
+            e10=results.get("e10", 0.0),
+            happiness_index=happiness_index,
+            happiness_level=happiness_level,
+            safety_risk=safety_risk
+        )
+
+        # 保存到数据库
+        analysis_id = await BinhuaAnalysisDao.add_analysis_dao(db, analysis_model)
+        await db.commit()
+
+        print(f"[{source}] 分析结果已保存到数据库，ID: {analysis_id}")
+        return analysis_id
+
+    except Exception as e:
+        print(f"[{source}] 保存分析结果到数据库失败: {e}")
+        traceback.print_exc()
+        return None
 
 
 def reset_analysis_state(source: str):
@@ -169,7 +265,9 @@ def reset_analysis_state(source: str):
             "matched_person": None, "feature_extracted": False,
             "match_similarity": 0.0,
             "last_detected_rect": None,
-            "identified": False
+            "identified": False,
+            "analysis_start_time": None,
+            "analysis_completed": False
         })
         latest_results[source] = {f"e{i}": 0.0 for i in range(1, 15)}
 
@@ -206,7 +304,7 @@ async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, 
         return None, 0.0
 
 
-def draw_face_recognition(frame: np.ndarray, name: str, similarity: float, rect: tuple, is_locked: bool = False):
+def draw_face_recognition(frame: np.ndarray, name: str, similarity: float, rect: tuple, is_locked: bool = False, remaining_time: float = None):
     if rect is None:
         return
     x, y, w, h = rect
@@ -215,6 +313,9 @@ def draw_face_recognition(frame: np.ndarray, name: str, similarity: float, rect:
         color = (255, 0, 0)  # 蓝色粗框
         thickness = 3
         label = f"{name} ({similarity:.2f}) [Locked]" if name != "Unknown" else "Unknown [Locked]"
+        # 添加倒计时显示
+        if remaining_time is not None:
+            label = f"{label} | {remaining_time:.1f}s"
     else:
         color = (0, 255, 0)  # 绿色细框
         thickness = 2
@@ -368,19 +469,39 @@ async def generate_video_stream(
                         if name:
                             state["matched_person"] = name
                             state["match_similarity"] = similarity
+                            # 识别到身份后开始计时
+                            if name != "Unknown" and state["analysis_start_time"] is None:
+                                state["analysis_start_time"] = time.time()
+                                print(f"[{source}] 识别到 {name}，开始10秒分析")
                         else:
                             state["matched_person"] = "Unknown"
                             state["match_similarity"] = 0.0
+
+                    # 计算剩余时间
+                    remaining_time = None
+                    if state["analysis_start_time"] is not None:
+                        elapsed = time.time() - state["analysis_start_time"]
+                        remaining_time = max(0, state["analysis_duration"] - elapsed)
+
+                        # 如果时间到了，停止分析并固定结果
+                        if remaining_time <= 0:
+                            print(f"[{source}] 10秒分析完成，停止分析并固定结果")
+                            state["analysis_completed"] = True  # 标记分析已完成
+                            state["analysis_start_time"] = None
+                            # 保存分析结果到数据库
+                            await save_analysis_to_db(query_db, source, state, latest_results[source])
+                            # 注意：不设置 analyzing=False，保持为True以兼容前端显示
 
                     # 统一绘制
                     draw_face_recognition(display_frame,
                                           state["matched_person"] or "Unknown",
                                           state["match_similarity"],
                                           face_rect,
-                                          is_locked=state["analyzing"])
+                                          is_locked=state["analyzing"],
+                                          remaining_time=remaining_time)
 
-                    # 振动分析
-                    if state["analyzing"] and state["frame_count"] % 3 == 0 and state['matched_person'] != "Unknown":
+                    # 振动分析（仅在分析未完成时进行）
+                    if state["analyzing"] and not state["analysis_completed"] and state["frame_count"] % 3 == 0 and state['matched_person'] != "Unknown":
                         try:
                             fps = cap.get(cv2.CAP_PROP_FPS) or 60
                             analysis_results = await asyncio.to_thread(
@@ -426,18 +547,33 @@ async def generate_video_stream(
 @videoController.get("/results")
 async def get_analysis_results(source: str = Query(None)):
     if source and source in stable_state:
-        if stable_state[source]["analyzing"]:
+        state = stable_state[source]
+        # 如果分析已完成，返回固定结果
+        if state["analysis_completed"]:
+            return {
+                "analyzing": True,  # 保持analyzing=True以兼容前端显示
+                "completed": True,
+                "source": source,
+                "results": {k: float(v) for k, v in latest_results[source].items()},
+                "matched_person": state["matched_person"],
+                "similarity": state["match_similarity"],
+                "message": "分析已完成，结果已固定"
+            }
+        # 如果正在分析，返回实时结果
+        elif state["analyzing"]:
             print(latest_results[source].items())
             return {
                 "analyzing": True,
+                "completed": False,
                 "source": source,
                 "results": {k: float(v) for k, v in latest_results[source].items()},
-                "matched_person": stable_state[source]["matched_person"],
-                "similarity": stable_state[source]["match_similarity"]
+                "matched_person": state["matched_person"],
+                "similarity": state["match_similarity"]
             }
         else:
             return {
                 "analyzing": False,
+                "completed": False,
                 "message": "当前无有效分析（摄像头未连接或人脸未稳定）",
                 "results": {f"e{i}": 0.0 for i in range(1, 15)},
                 "matched_person": None
@@ -448,6 +584,7 @@ async def get_analysis_results(source: str = Query(None)):
         s = active_sources[0]
         return {
             "analyzing": True,
+            "completed": False,
             "source": s,
             "results": {k: float(v) for k, v in latest_results[s].items()},
             "matched_person": stable_state[s]["matched_person"],
@@ -456,6 +593,7 @@ async def get_analysis_results(source: str = Query(None)):
 
     return {
         "analyzing": False,
+        "completed": False,
         "message": "无任何摄像头正在分析",
         "results": {f"e{i}": 0.0 for i in range(1, 15)},
         "matched_person": None
