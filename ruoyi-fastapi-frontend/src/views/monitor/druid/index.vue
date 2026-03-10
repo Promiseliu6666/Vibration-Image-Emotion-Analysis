@@ -42,18 +42,17 @@
           <div class="status-overlay">
             <div class="status-corner" :class="videoStatus">
               <span class="status-text">{{ statusText }}</span>
+              <!-- 分析完成标识 -->
+              <span v-if="analysisCompleted" class="completed-tag">分析完成</span>
             </div>
-            <!-- 错误提示遮罩，当摄像头完全不可用时显示 -->
             <div v-if="videoStatus === 'error' && showConnectionTip" class="error-tip">
               <div class="error-icon">⚠️</div>
               <div class="error-message">{{ connectionTipText }}</div>
               <div class="error-hint">💡 请在上方切换其他摄像头源重试</div>
             </div>
-            <!-- 连接失败自动重连提示 -->
             <div v-if="videoStatus === 'error' && !showConnectionTip" class="reconnect-tip">
               视频流中断，浏览器正在自动重连...
             </div>
-            <!-- 等待人脸提示 -->
             <div v-if="videoStatus === 'online' && !isAnalyzing" class="waiting-tip">
               等待检测到稳定人脸...<br />
               请正对摄像头，保持头部静止几秒钟
@@ -62,10 +61,38 @@
         </div>
       </div>
 
-      <!-- 右侧：参数面板（支持切换） -->
+      <!-- 右侧：参数面板 -->
       <div class="params-section">
         <div class="params-panel">
-          <!-- 🔥 切换按钮：默认显示"详情"，切换后显示"收起" -->
+          <!-- 人员信息卡片（强制显示） -->
+          <div class="person-card">
+            <div class="person-header">
+              <el-icon><User /></el-icon>
+              <h4>识别人员信息</h4>
+              <!-- 分析完成标识 -->
+              <el-tag v-if="analysisCompleted" type="success" size="small">分析完成</el-tag>
+            </div>
+            <div class="person-content">
+              <div class="person-item">
+                <span class="person-label">人员ID：</span>
+                <span class="person-value">{{ personInfo.id || '未知ID' }}</span>
+              </div>
+              <div class="person-item">
+                <span class="person-label">人员姓名：</span>
+                <span class="person-value">{{ personInfo.name || '未识别' }}</span>
+              </div>
+              <div class="person-item">
+                <span class="person-label">匹配相似度：</span>
+                <span class="person-value">{{ (personInfo.similarity || 0) * 100 | numberFormat }}%</span>
+              </div>
+              <div class="person-item">
+                <span class="person-label">识别时间：</span>
+                <span class="person-value">{{ personInfo.recognizeTime || new Date().toLocaleString() }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 切换按钮 -->
           <div class="switch-btn-container">
             <el-button
               type="primary"
@@ -76,9 +103,8 @@
             </el-button>
           </div>
 
-          <!-- 🔥 视图1：默认显示 - 幸福卡片+幸福参数 -->
+          <!-- 幸福指数卡片 -->
           <div v-if="!isShowE1E10 && isAnalyzing && wellbeingResults.happiness_index > 0">
-            <!-- 幸福指数卡片 -->
             <div class="wellbeing-card">
               <div class="wellbeing-header">
                 <h3>幸福指数综合评估</h3>
@@ -91,7 +117,6 @@
                   </el-tag>
                 </div>
               </div>
-
               <div class="wellbeing-content">
                 <div class="index-display">
                   <div class="index-value">{{ wellbeingResults.happiness_index.toFixed(1) }}</div>
@@ -104,7 +129,6 @@
                     ></div>
                   </div>
                 </div>
-
                 <div class="level-indicators">
                   <div class="level-item">
                     <span class="level-label">幸福等级:</span>
@@ -121,20 +145,18 @@
                 </div>
               </div>
             </div>
-
-            <!-- 幸福指数说明（紧贴卡片） -->
             <div class="wellbeing-tips">
               <p><strong>幸福指数说明：</strong></p>
               <ul>
                 <li><strong>幸福指数</strong>：综合评估当前心理状态 (1-100分)</li>
-                <li><strong>幸福等级</strong>：根据指数划分的心理状态等级</li>
-                <li><strong>安全风险</strong>：评估潜在的安全风险程度</li>
-                <li><strong>检测规则</strong>：检测10秒后数值固定，不再变化</li>
+                <li><strong>幸福等级</strong>：≥80分"幸福达标"，≥60分"幸福待提升"，<60分"幸福预警"</li>
+                <li><strong>安全风险</strong>：≥70分"低风险"，≥40分"中风险"，<40分"高风险"</li>
+                <li><strong>检测规则</strong>：人脸稳定后持续分析10秒，结果自动保存</li>
               </ul>
             </div>
           </div>
 
-          <!-- 视图1无数据时显示 -->
+          <!-- 无数据提示 -->
           <div v-if="!isShowE1E10 && (!isAnalyzing || wellbeingResults.happiness_index <= 0)">
             <div class="panel-header">
               <h3>实时监测数据</h3>
@@ -155,22 +177,21 @@
               <el-alert
                 title="分析中"
                 type="info"
-                description="正在采集数据计算幸福指数，请稍候..."
+                description="正在采集数据计算幸福指数，请稍候（预计10秒）..."
                 :closable="false"
                 show-icon
               />
             </div>
           </div>
 
-          <!-- 🔥 视图2：切换后显示 - e1-e14及参数含义 -->
+          <!-- e1-e14参数视图 -->
           <div v-if="isShowE1E10">
             <div class="panel-header">
               <h3>基础生理参数 (e1-e14)</h3>
               <el-tag type="info" size="small">
-                详细参数视图
+                {{ analysisCompleted ? '分析完成（结果固定）' : '实时分析中' }}
               </el-tag>
             </div>
-            <!-- e1-e14 参数显示区域 -->
             <div class="param-list" v-if="isAnalyzing">
               <div v-for="param in paramConfig" :key="param.key" class="param-item">
                 <div class="param-label">
@@ -198,8 +219,6 @@
                 show-icon
               />
             </div>
-
-            <!-- 参数含义（两列排版，节省空间） -->
             <div class="tips">
               <p><strong>参数含义：</strong></p>
               <div class="param-meaning-grid">
@@ -219,13 +238,13 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
+import { Refresh, User } from '@element-plus/icons-vue'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
 
 // ==================== 状态管理 ====================
 const cameraSource = ref('local')
-const videoStatus = ref('connecting')  // connecting, online, waiting, error
+const videoStatus = ref('connecting')
 const statusText = ref('连接中...')
 const showConnectionTip = ref(false)
 const connectionTipText = ref('')
@@ -234,10 +253,18 @@ const reconnectAttempts = ref(0)
 const MAX_RECONNECT_ATTEMPTS = 3
 const shouldPolling = ref(true)
 const isAnalyzing = ref(false)
+const analysisCompleted = ref(false) // 新增：分析完成状态
 let pollTimer = null
 
-// 🔥 新增：切换状态（默认false：显示幸福卡片；true：显示e1-e14）
 const isShowE1E10 = ref(false)
+
+// 人员信息（默认值）
+const personInfo = ref({
+  id: '',
+  name: '',
+  similarity: 0,
+  recognizeTime: ''
+})
 
 const videoImg = ref(null)
 
@@ -271,14 +298,13 @@ const paramConfig = [
   { key: 'e14', name: '稳定性' }
 ]
 
-// 新增：参数含义列表（两列排版用）
 const paramMeaningList = ref([
   { key: 'e1', meaning: '攻击性-微振动强度与波动' },
   { key: 'e2', meaning: '压力-左右脸振动不对称' },
   { key: 'e3', meaning: '焦虑-高频振动能量占比' },
   { key: 'e4', meaning: '可疑-综合异常程度' },
   { key: 'e5', meaning: '平衡-振动稳定性（越高越好）' },
-  { key: 'e6', meaning: '魅力-左右协调性' },
+  { key: 'e6', meaning: '魅力-左右脸协调性' },
   { key: 'e7', meaning: '能量-整体振动能量水平' },
   { key: 'e8', meaning: '自我调节-参数波动稳定性' },
   { key: 'e9', meaning: '抑制-攻击性与平衡的协调' },
@@ -289,34 +315,30 @@ const paramMeaningList = ref([
   { key: 'e14', meaning: '稳定性 — 频率直方图与正态分布相似度' }
 ])
 
+// ==================== 过滤器 ====================
+const numberFormat = (value) => {
+  return value.toFixed(2)
+}
+
 // ==================== 视频流URL ====================
 const videoStreamUrl = computed(() => {
   const timestamp = new Date().getTime()
   return `${baseURL}/video/feed/analysis?source=${cameraSource.value}&t=${timestamp}`
 })
 
-// ==================== 幸福指数计算函数 ====================
-/**
- * 根据幸福指数计算幸福等级
- */
+// ==================== 幸福指数计算（与后端同步）====================
 const calculateHappinessLevel = (index) => {
   if (index >= 80) return '幸福达标'
   if (index >= 60) return '幸福待提升'
   return '幸福预警'
 }
 
-/**
- * 根据幸福指数计算安全风险等级
- */
 const calculateSafetyRiskLevel = (index) => {
   if (index >= 70) return '低风险'
   if (index >= 40) return '中风险'
   return '高风险'
 }
 
-/**
- * 获取幸福指数进度条颜色类
- */
 const getHappinessLevelClass = (value) => {
   if (value >= 80) return 'happiness-high'
   if (value >= 60) return 'happiness-medium'
@@ -324,63 +346,39 @@ const getHappinessLevelClass = (value) => {
   return 'happiness-very-low'
 }
 
-/**
- * 获取安全风险等级颜色类
- */
 const getSafetyLevelClass = (level) => {
   switch(level) {
-    case '低风险':
-      return 'safety-low'
-    case '中风险':
-      return 'safety-medium'
-    case '高风险':
-      return 'safety-high'
-    default:
-      return 'safety-unknown'
+    case '低风险': return 'safety-low'
+    case '中风险': return 'safety-medium'
+    case '高风险': return 'safety-high'
+    default: return 'safety-unknown'
   }
 }
 
-/**
- * 获取幸福等级标签类型
- */
 const getHappinessTagType = (level) => {
   switch(level) {
-    case '幸福达标':
-      return 'success'
-    case '幸福待提升':
-      return 'warning'
-    case '幸福预警':
-      return 'danger'
-    default:
-      return 'info'
+    case '幸福达标': return 'success'
+    case '幸福待提升': return 'warning'
+    case '幸福预警': return 'danger'
+    default: return 'info'
   }
 }
 
-/**
- * 获取安全风险标签类型
- */
 const getSafetyTagType = (level) => {
   switch(level) {
-    case '低风险':
-      return 'success'
-    case '中风险':
-      return 'warning'
-    case '高风险':
-      return 'danger'
-    default:
-      return 'info'
+    case '低风险': return 'success'
+    case '中风险': return 'warning'
+    case '高风险': return 'danger'
+    default: return 'info'
   }
 }
 
-/**
- * 🔥 新增：切换视图函数
- */
 const toggleParamView = () => {
   isShowE1E10.value = !isShowE1E10.value
   ElMessage.success(`已切换至${isShowE1E10.value ? '详细参数' : '幸福指数'}视图`)
 }
 
-// ==================== 视频流事件处理 ====================
+// ==================== 视频流事件 ====================
 const onVideoLoad = () => {
   videoStatus.value = 'online'
   statusText.value = '在线 · 等待人脸稳定...'
@@ -417,12 +415,14 @@ const clearResults = () => {
     happiness_level: '',
     safety_risk_level: ''
   }
-
+  
+  personInfo.value = { id: '', name: '', similarity: 0, recognizeTime: '' }
   isAnalyzing.value = false
-  // 重置视图为默认（幸福卡片）
+  analysisCompleted.value = false // 重置分析完成状态
   isShowE1E10.value = false
 }
 
+// 优化：fetchResults函数（适配新版后端接口）
 const fetchResults = async () => {
   if (!shouldPolling.value) return
 
@@ -430,34 +430,50 @@ const fetchResults = async () => {
     const res = await fetch(`${baseURL}/video/results?source=${cameraSource.value}`)
     const data = await res.json()
 
-    if (data.analyzing) {
-      isAnalyzing.value = true
+    console.log("后端返回数据：", data)
+
+    // 更新分析状态
+    isAnalyzing.value = data.analyzing || false
+    analysisCompleted.value = data.completed || false
+    
+    // 更新视频状态文本
+    if (isAnalyzing.value) {
       videoStatus.value = 'online'
-
-      // 更新所有参数（平滑过渡）
-      Object.keys(results.value).forEach(key => {
-        results.value[key] = results.value[key] * 0.7 + (data.results?.[key] ?? 0) * 0.3
-      })
-
-      // 🔥 幸福指数来自 e12，并进行平滑更新
-      const currentE12 = data.results?.e12 ?? 0
-      wellbeingResults.value.happiness_index = 
-        wellbeingResults.value.happiness_index * 0.7 + currentE12 * 0.3
-
-      // 根据幸福指数动态计算等级
-      wellbeingResults.value.happiness_level = calculateHappinessLevel(wellbeingResults.value.happiness_index)
-      wellbeingResults.value.safety_risk_level = calculateSafetyRiskLevel(wellbeingResults.value.happiness_index)
-
-    } else {
-      isAnalyzing.value = false
-      if (!data.analyzing) {
-        wellbeingResults.value = {
-          happiness_index: 0,
-          happiness_level: '',
-          safety_risk_level: ''
-        }
+      if (analysisCompleted.value) {
+        statusText.value = '分析完成（结果已固定）'
+      } else {
+        statusText.value = '分析中（预计10秒）'
       }
+    } else {
+      statusText.value = data.message || '等待人脸稳定...'
     }
+
+    // 更新参数
+    if (data.results) {
+      Object.keys(results.value).forEach(key => {
+        // 分析完成后不再平滑更新，直接使用最终值
+        if (analysisCompleted.value) {
+          results.value[key] = data.results[key] || 0
+        } else {
+          results.value[key] = results.value[key] * 0.7 + (data.results[key] ?? 0) * 0.3
+        }
+      })
+    }
+
+    // 更新人员信息（适配新版接口）
+    personInfo.value = {
+      id: data.person_id || '',
+      name: data.matched_person || '',
+      similarity: data.similarity || 0,
+      recognizeTime: personInfo.value.recognizeTime || new Date().toLocaleString()
+    }
+
+    // 幸福指数计算（与后端同步）
+    const happinessIndex = results.value.e12 || 0
+    wellbeingResults.value.happiness_index = happinessIndex
+    wellbeingResults.value.happiness_level = calculateHappinessLevel(happinessIndex)
+    wellbeingResults.value.safety_risk_level = calculateSafetyRiskLevel(happinessIndex)
+
   } catch (err) {
     console.error('轮询失败', err)
   }
@@ -466,8 +482,10 @@ const fetchResults = async () => {
 // ==================== 轮询管理 ====================
 const startPolling = () => {
   if (pollTimer) clearInterval(pollTimer)
-  pollTimer = setInterval(fetchResults, 800)
-  fetchResults()
+  // 分析完成后降低轮询频率（每5秒一次）
+  const interval = analysisCompleted.value ? 5000 : 800
+  pollTimer = setInterval(fetchResults, interval)
+  fetchResults() // 立即执行一次
 }
 
 const stopPolling = () => {
@@ -491,10 +509,11 @@ const resetParams = async () => {
   try {
     const res = await fetch(`${baseURL}/video/reset?source=${cameraSource.value}`)
     if (res.ok) {
+      const data = await res.json()
       clearResults()
       videoStatus.value = 'waiting'
       statusText.value = '已刷新，等待人脸检测...'
-      ElMessage.success('已刷新！摄像头将重新检测人脸')
+      ElMessage.success(data.message || '已刷新！摄像头将重新检测人脸')
       startPolling()
     } else {
       ElMessage.error('刷新失败')
@@ -513,6 +532,7 @@ watch(cameraSource, async (newVal, oldVal) => {
     shouldPolling.value = false
     clearResults()
     isAnalyzing.value = false
+    analysisCompleted.value = false
     videoStatus.value = 'connecting'
 
     try {
@@ -555,17 +575,92 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* === 幸福指数卡片样式 === */
+/* 人员信息卡片 */
+.person-card {
+  background: linear-gradient(135deg, #f0f8ff 0%, #e8f4f8 100%);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  border: 1px solid #dee2e6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.person-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #dee2e6;
+}
+
+.person-header h4 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+.person-header .el-icon {
+  color: #3b82f6;
+  font-size: 1.2em;
+}
+
+.person-content {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.person-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.person-label {
+  font-size: 0.85em;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.person-value {
+  font-size: 0.95em;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+/* 分析完成标签 */
+.completed-tag {
+  background: rgba(46, 204, 113, 0.9);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+/* 幸福指数卡片 */
 .wellbeing-card {
   background: rgba(245, 247, 250, 0.78);
-  backdrop-filter: blur(10px);          /* 毛玻璃效果，现代感强 */
-  -webkit-backdrop-filter: blur(10px);  /* Safari 支持 */
+  backdrop-filter: blur(10px);          
+  -webkit-backdrop-filter: blur(10px);  
   border-radius: 16px;
   padding: 20px 24px;
   margin-bottom: 16px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(200, 220, 255, 0.5);
-  color: #1e293b;                       /* 深灰偏蓝，更高级 */
+  color: #1e293b;
+}
+
+.wellbeing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
 }
 
 .wellbeing-header h3 {
@@ -573,28 +668,46 @@ onUnmounted(() => {
   font-size: 1.25em;
   font-weight: 700;
   letter-spacing: 0.5px;
+  margin: 0;
+}
+
+.index-display {
+  text-align: center;
+  margin-bottom: 20px;
 }
 
 .index-value {
   font-size: 3.4em;
   font-weight: 800;
-  color: #2563eb;                       /* 更沉稳的蓝 */
+  color: #2563eb;
   text-shadow: 0 2px 8px rgba(37, 99, 235, 0.18);
+  margin-bottom: 10px;
 }
 
-.index-progress .progress-bar {
-  height: 14px;                         /* 更细更优雅 */
+.index-label {
+  font-size: 1.1em;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.index-progress {
+  width: 100%;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
   background: rgba(226, 232, 240, 0.9);
   border: 1px solid rgba(203, 213, 225, 0.6);
   box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);
 }
 
 .index-progress .progress-fill {
+  height: 100%;
+  border-radius: 6px;
   box-shadow: 0 0 12px rgba(0,0,0,0.15);
   transition: width 1s ease-out;
 }
 
-/* 幸福指数颜色 - 更柔和渐变 */
+/* 幸福指数颜色渐变 */
 .index-progress .progress-fill.happiness-very-low {
   background: linear-gradient(90deg, #f87171, #ef4444);
 }
@@ -639,17 +752,14 @@ onUnmounted(() => {
   background: rgba(46, 204, 113, 0.15);
   color: #27ae60;
 }
-
 .level-value.happiness-medium {
   background: rgba(52, 152, 219, 0.15);
   color: #2980b9;
 }
-
 .level-value.happiness-low {
   background: rgba(231, 126, 34, 0.15);
   color: #e67e22;
 }
-
 .level-value.happiness-very-low {
   background: rgba(231, 76, 60, 0.15);
   color: #c0392b;
@@ -659,23 +769,20 @@ onUnmounted(() => {
   background: rgba(46, 204, 113, 0.15);
   color: #27ae60;
 }
-
 .level-value.safety-medium {
   background: rgba(241, 196, 15, 0.15);
   color: #f39c12;
 }
-
 .level-value.safety-high {
   background: rgba(231, 76, 60, 0.15);
   color: #c0392b;
 }
-
 .level-value.safety-unknown {
   background: rgba(189, 195, 199, 0.15);
   color: #7f8c8d;
 }
 
-/* === 幸福指数说明 === */
+/* 幸福指数说明 */
 .wellbeing-tips {
   margin-top: 0;
   margin-bottom: 20px;
@@ -685,9 +792,15 @@ onUnmounted(() => {
   border-left: 4px solid #3498db;
 }
 
+.wellbeing-tips p {
+  margin: 0 0 10px 0;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
 .wellbeing-tips ul {
   padding-left: 20px;
-  margin: 10px 0;
+  margin: 0;
 }
 
 .wellbeing-tips li {
@@ -696,14 +809,14 @@ onUnmounted(() => {
   line-height: 1.5;
 }
 
-/* === 🔥 切换按钮样式 === */
+/* 切换按钮 */
 .switch-btn-container {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 16px;
 }
 
-/* === 🔥 参数含义两列排版（节省空间）=== */
+/* 参数含义排版 */
 .param-meaning-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -734,7 +847,7 @@ onUnmounted(() => {
   flex: 1;
 }
 
-/* === 原有样式 === */
+/* 基础布局 */
 .vibra-monitor {
   padding: 20px;
   max-width: 1600px;
@@ -846,19 +959,7 @@ onUnmounted(() => {
   background: rgba(52, 152, 219, 0.9);
 }
 
-.reconnect-tip {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: #fff;
-  padding: 20px 40px;
-  border-radius: 16px;
-  font-size: 1.2em;
-}
-
-.waiting-tip {
+.reconnect-tip, .waiting-tip, .error-tip {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -869,7 +970,17 @@ onUnmounted(() => {
   border-radius: 16px;
   font-size: 1.2em;
   text-align: center;
-  line-height: 1.6;
+}
+
+.error-icon {
+  font-size: 2em;
+  margin-bottom: 10px;
+}
+
+.error-hint {
+  margin-top: 10px;
+  font-size: 0.9em;
+  color: #ccc;
 }
 
 .params-section {
@@ -912,8 +1023,7 @@ onUnmounted(() => {
 }
 
 .param-item {
-  display: grid;
-  grid-template-columns: 110px 1fr 70px;
+  display: flex;
   align-items: center;
   gap: 16px;
   padding: 10px 0;
@@ -921,7 +1031,8 @@ onUnmounted(() => {
 }
 
 .param-label {
-  width: auto;
+  width: 110px;
+  flex-shrink: 0;
 }
 
 .param-label .key {
@@ -939,156 +1050,61 @@ onUnmounted(() => {
 }
 
 .progress-wrapper {
+  display: flex;
+  align-items: center;
   gap: 12px;
+  flex: 1;
 }
 
 .progress-bar {
   height: 18px;
   background: #e2e8f0;
-  border-radius: 999px;               /* 极致圆角 */
+  border-radius: 9px;
   overflow: hidden;
-  border: none;
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.08);
-  position: relative;
+  flex: 1;
 }
 
 .progress-fill {
   height: 100%;
-  border-radius: 999px;
-  transition: width 0.9s cubic-bezier(0.34, 1.56, 0.64, 1);
-  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-  min-width: 6%;
-  background-size: 200% 200%;
-  animation: gradientFlow 8s ease infinite;
+  border-radius: 8px;
+  transition: width 0.5s ease;
 }
 
-/* 颜色语义更柔和 + 流动感渐变 */
-.progress-fill.low {
-  background: linear-gradient(90deg, #86efac, #4ade80, #22c55e);
-  background-size: 200% 200%;
-}
-.progress-fill.medium {
-  background: linear-gradient(90deg, #fdba74, #fb923c, #f97316);
-  background-size: 200% 200%;
-}
 .progress-fill.high {
-  background: linear-gradient(90deg, #fca5a5, #f87171, #ef4444);
-  background-size: 200% 200%;
+  background: linear-gradient(90deg, #4ade80, #22c55e);
+}
+
+.progress-fill.medium {
+  background: linear-gradient(90deg, #60a5fa, #3b82f6);
+}
+
+.progress-fill.low {
+  background: linear-gradient(90deg, #fb923c, #f97316);
 }
 
 .value {
-  font-size: 1.18rem;
-  font-weight: 700;
-  color: #1e293b;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  min-width: 60px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #2c3e50;
+  min-width: 50px;
   text-align: right;
 }
 
-/* 微动画 - 渐变流动（可选，增加高级感） */
-@keyframes gradientFlow {
-  0%   { background-position: 0% 50%; }
-  50%  { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
 .no-analysis-tip {
-  margin-bottom: 20px;
-  padding: 0 10px;
+  margin-top: 20px;
 }
 
 .tips {
-  flex-shrink: 0;
   margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px dashed #ddd;
-  font-size: 13px;
-  color: #7f8c8d;
-  line-height: 1.7;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
 }
 
 .tips p {
-  margin: 0;
-}
-
-.tips ul {
-  padding-left: 20px;
-  margin: 10px 0;
-}
-
-.tips li {
-  margin-bottom: 6px;
-  line-height: 1.6;
-}
-
-.params-panel::-webkit-scrollbar {
-  width: 8px;
-}
-
-.params-panel::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.params-panel::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
-}
-
-.params-panel::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
-}
-
-/* 响应式适配 */
-@media (max-width: 1200px) {
-  .main-content {
-    flex-direction: column;
-    height: auto;
-  }
-  .params-section {
-    min-width: 100%;
-    max-width: 100%;
-  }
-  .params-panel {
-    height: auto;
-    max-height: 600px;
-  }
-  .level-indicators {
-    flex-direction: column;
-    gap: 12px;
-  }
-  .param-meaning-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
-  .header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 16px;
-  }
-  .controls {
-    width: 100%;
-    justify-content: space-between;
-  }
-  .param-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  .progress-wrapper {
-    width: 100%;
-  }
-  .param-label {
-    width: 100%;
-  }
-  .wellbeing-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  .wellbeing-status {
-    align-self: flex-start;
-  }
+  margin: 0 0 10px 0;
+  font-weight: 600;
+  color: #2c3e50;
 }
 </style>
