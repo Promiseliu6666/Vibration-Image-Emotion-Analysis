@@ -60,3 +60,18 @@ export function batchDelAnalysis(data) {
     data
   })
 }
+export function exportAnalysis(query) {
+  const form = new URLSearchParams()
+  Object.entries(query).forEach(([k, v]) => {
+    if (v != null && v !== '') form.append(k, v)
+  })
+
+  return request({
+    url: '/analysis/export',
+    method: 'post',
+    data: form,                     // 必须用 data（post + form-urlencoded）
+    responseType: 'blob',           // 必须在这里
+    // 如果你的 request 封装强制加了 Content-Type，这里可以不写
+    // headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  })
+}

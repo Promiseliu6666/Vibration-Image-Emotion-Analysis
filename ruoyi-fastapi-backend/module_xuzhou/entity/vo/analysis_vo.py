@@ -32,6 +32,10 @@ class BinhuaAnalysisModel(BaseModel):
     e8: float = Field(default=0.0, description='e8')
     e9: float = Field(default=0.0, description='e9')
     e10: float = Field(default=0.0, description='e10')
+    e11: float = Field(default=0.0, description='e11')
+    e12: float = Field(default=0.0, description='e12')
+    e13: float = Field(default=0.0, description='e13')
+    e14: float = Field(default=0.0, description='e14')
     happiness_index: float = Field(default=0.0, description='幸福指数')
     happiness_level: Optional[str] = Field(default=None, description='幸福等级')
     safety_risk: Optional[str] = Field(default=None, description='安全风险')
@@ -91,4 +95,7 @@ class BinhuaAnalysisPageQueryModel(BaseModel):
     page_num: int = Field(default=1, alias='pageNum', description='当前页码')  # ← 添加 alias
     page_size: int = Field(default=10, alias='pageSize', description='每页记录数')  # ← 添加 alias
     person_id: Optional[int] = Field(default=None, alias='personId', description='人员ID')  # ← 添加 alias
+    person_name: Optional[str] = Field(default=None, alias='personName', description='人名（模糊搜索）')  # ← 添加人名模糊搜索
     source: Optional[str] = Field(default=None, description='视频来源')  # source 一致，无需 alias
+    start_time: Optional[datetime] = Field(default=None, alias='startTime', description='开始时间（日期范围查询）')  # ← 添加开始时间
+    end_time: Optional[datetime] = Field(default=None, alias='endTime', description='结束时间（日期范围查询）')  # ← 添加结束时间

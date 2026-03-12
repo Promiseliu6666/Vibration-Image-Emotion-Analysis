@@ -197,11 +197,11 @@ async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, result
 
         # 与前端一致的幸福水平计算
         if happiness_index >= 80:
-            happiness_level = "幸福达标"
+            happiness_level = "高"
         elif happiness_index >= 60:
-            happiness_level = "幸福待提升"
+            happiness_level = "中"
         else:
-            happiness_level = "幸福预警"
+            happiness_level = "低"
 
         # 与前端一致的安全风险计算
         if happiness_index >= 70:
@@ -226,6 +226,10 @@ async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, result
             e8=results.get("e8", 0.0),
             e9=results.get("e9", 0.0),
             e10=results.get("e10", 0.0),
+            e11=results.get("e11", 0.0),
+            e12=results.get("e12", 0.0),
+            e13=results.get("e13", 0.0),
+            e14=results.get("e14", 0.0),
             happiness_index=happiness_index,
             happiness_level=happiness_level,
             safety_risk=safety_risk

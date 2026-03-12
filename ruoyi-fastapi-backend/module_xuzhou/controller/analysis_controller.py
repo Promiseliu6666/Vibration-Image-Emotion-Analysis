@@ -1,12 +1,14 @@
 import traceback
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, Request, Body
+from fastapi import APIRouter, Depends, Request, Body, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.enums import BusinessType
 from config.get_db import get_db
 from module_admin.annotation.integration_log_annotation import integration_log
 from module_xuzhou.auth import unified_auth
+from utils.common_util import CamelCaseUtil
 from module_xuzhou.entity.vo.analysis_vo import (
     BinhuaAnalysisModel,
     BinhuaAnalysisUpdateModel,
@@ -14,6 +16,7 @@ from module_xuzhou.entity.vo.analysis_vo import (
     BinhuaAnalysisPageQueryModel,
 )
 from module_xuzhou.service.analysis_service import BinhuaAnalysisService
+from utils.common_util import bytes2file_response
 from utils.log_util import logger
 from utils.page_util import PageResponseModel
 from utils.response_util import ResponseUtil
@@ -162,3 +165,57 @@ async def batch_delete_analysis(
         logger.error(f'批量删除分析记录失败: {str(e)}')
         logger.error(traceback.format_exc())
         return ResponseUtil.error(msg=f'批量删除失败: {str(e)}')
+
+
+@analysis_controller.post('/export', summary='导出分析记录列表')
+@integration_log(
+    title='导出分析记录列表',
+    system_name='徐州人员管理系统',
+    business_type=BusinessType.EXPORT,
+)
+async def export_analysis_list(
+    request: Request,
+    query: BinhuaAnalysisPageQueryModel = Form(),
+    query_db: AsyncSession = Depends(get_db),
+):
+    """
+    导出分析记录列表到Excel
+    支持按条件导出：person_id、person_name、source、时间范围
+    """
+    try:
+        # 打印接收到的查詢參數（debug）
+        params_dict = query.dict(exclude_unset=True)
+        logger.info(f"導出接口接收到的查詢參數: {params_dict}")
+
+        # 获取全量数据（不分页）
+        analysis_list_result = await BinhuaAnalysisService.get_analysis_list_services(
+            query_db, query, is_page=False
+        )
+
+        # 打印原始數據類型與筆數
+        logger.info(f"從 DAO 取得的原始數據類型: {type(analysis_list_result)}")
+        if isinstance(analysis_list_result, list):
+            logger.info(f"原始數據筆數: {len(analysis_list_result)}")
+            if analysis_list_result:
+                logger.info(f"第一筆原始物件類型: {type(analysis_list_result[0])}")
+
+        # 直接傳給 service 處理（包含 ORM → dict 轉換）
+        excel_data = await BinhuaAnalysisService.export_analysis_list_services(analysis_list_result)
+
+        # 檔名（使用 UTF-8 編碼避免中文亂碼）
+        from urllib.parse import quote
+        filename = f'幸福分析记录_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        headers = {
+            'Content-Disposition': f'attachment; filename*=UTF-8\'\'{quote(filename)}'
+        }
+
+        logger.info('導出流程完成，即將返回文件流')
+        return ResponseUtil.streaming(
+            data=bytes2file_response(excel_data),
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers=headers
+        )
+
+    except Exception as e:
+        logger.error(f'導出分析記錄列表失敗: {str(e)}', exc_info=True)
+        return ResponseUtil.error(msg=f'導出失敗: {str(e)}')
