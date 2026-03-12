@@ -41,7 +41,9 @@ class BinhuaAnalysisDao:
         分页查询分析记录列表
         支持过滤：
           - person_id（精确匹配，仅当非 None 时生效）
+          - person_name（模糊匹配，仅当去空格后非空时生效）
           - source（模糊匹配，仅当去空格后非空时生效）
+          - start_time 和 end_time（日期范围查询，仅当非 None 时生效）
         排序：创建时间倒序（最新记录优先）
         """
         # === 优化 person_id 条件：仅当非 None 时添加 ===
@@ -49,16 +51,35 @@ class BinhuaAnalysisDao:
         if query_object.person_id is not None:
             person_id_cond = (BinhuaAnalysis.person_id == query_object.person_id)
 
+        # === 优化 person_name 条件：去空格后非空才进行模糊匹配 ===
+        person_name_cond = True
+        if query_object.person_name and query_object.person_name.strip():
+            person_name_cond = BinhuaAnalysis.person_name.like(f'%{query_object.person_name.strip()}%')
+
         # === 优化 source 条件：去空格后非空才进行模糊匹配，避免空字符串/纯空格干扰 ===
         source_cond = True
         if query_object.source and query_object.source.strip():
             source_cond = BinhuaAnalysis.source.like(f'%{query_object.source.strip()}%')
 
+        # === 日期范围查询条件 ===
+        time_cond = True
+        if query_object.start_time is not None and query_object.end_time is not None:
+            # 同时提供了开始和结束时间，使用 between
+            time_cond = BinhuaAnalysis.create_time.between(query_object.start_time, query_object.end_time)
+        elif query_object.start_time is not None:
+            # 只提供了开始时间，查询大于等于开始时间的记录
+            time_cond = BinhuaAnalysis.create_time >= query_object.start_time
+        elif query_object.end_time is not None:
+            # 只提供了结束时间，查询小于等于结束时间的记录
+            time_cond = BinhuaAnalysis.create_time <= query_object.end_time
+
         query = (
             select(BinhuaAnalysis)
             .where(
                 person_id_cond,
+                person_name_cond,
                 source_cond,
+                time_cond,
             )
             .order_by(BinhuaAnalysis.create_time.desc())
         )
