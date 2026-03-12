@@ -22,6 +22,10 @@ class BinhuaAnalysis(Base):
     e8=Column(Float,default=0,comment='e8')
     e9=Column(Float,default=0,comment='e9')
     e10=Column(Float,default=0,comment='e10')
+    e11=Column(Float,default=0,comment='e11')
+    e12=Column(Float,default=0,comment='e12')
+    e13=Column(Float,default=0,comment='e13')
+    e14=Column(Float,default=0,comment='e14')
     happiness_index = Column(Float, default=0.0, comment='幸福指数')
     happiness_level = Column(String(50), nullable=True, comment='幸福等级')  # 字符串类型
     safety_risk = Column(String(100), nullable=True, comment='安全风险')  # 字符串类型
