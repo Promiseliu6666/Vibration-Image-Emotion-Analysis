@@ -1,5 +1,4 @@
 import traceback
-from datetime import datetime
 from typing import List, Dict, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,17 +10,12 @@ from module_xuzhou.entity.vo.analysis_vo import (
     DeleteBinhuaAnalysisModel,
     BinhuaAnalysisPageQueryModel,
 )
-from module_xuzhou.error.analysis_error import AnalysisNotFoundError  # 假设已定义，如需可新增
+from module_xuzhou.error.analysis_error import AnalysisNotFoundError
 from utils.common_util import CamelCaseUtil
 from utils.log_util import logger
 
 
 class BinhuaAnalysisService:
-    """
-    分析记录服务层（对应 binahua_analysis 表）
-    提供 CRUD 及常见查询业务逻辑，与 PeopleService 风格保持高度一致
-    """
-
     @classmethod
     async def get_analysis_list_services(
         cls,
@@ -29,52 +23,54 @@ class BinhuaAnalysisService:
         query_object: BinhuaAnalysisPageQueryModel,
         is_page: bool = True,
     ):
-        """
-        分页查询分析记录列表
-        """
         analysis_list_result = await BinhuaAnalysisDao.get_analysis_list(
             query_db, query_object, is_page
         )
+        # 自动补充 videoUrl 和 videoPath（更健壮）
+        if isinstance(analysis_list_result, dict) and "records" in analysis_list_result:
+            for item in analysis_list_result["records"]:
+                video_path = item.get("videoPath") or item.get("video_path") or item.get("videoPath")
+                if video_path and item.get("id"):
+                    item["videoUrl"] = f"/analysis/video/{item['id']}"
+                    item["videoPath"] = str(video_path).strip()
         return analysis_list_result
 
     @classmethod
     async def get_analysis_history_services(
         cls, query_db: AsyncSession, person_id: int
     ) -> List[Dict[str, Any]]:
-        """
-        根据人员ID获取该人员的所有分析记录（按创建时间倒序）
-        对应人员分析历史场景
-        """
         result = []
         for analysis in await BinhuaAnalysisDao.get_analysis_list_by_person_id(
             query_db, person_id=person_id
         ):
-            result.append(CamelCaseUtil.transform_result(analysis))
+            item = CamelCaseUtil.transform_result(analysis)
+            video_path = item.get("videoPath") or item.get("video_path")
+            if video_path and item.get("id"):
+                item["videoUrl"] = f"/analysis/video/{item['id']}"
+                item["videoPath"] = str(video_path).strip()
+            result.append(item)
         return result
 
     @classmethod
     async def get_analysis_detail_services(
         cls, query_db: AsyncSession, analysis_id: int
     ) -> BinhuaAnalysisModel:
-        """
-        根据ID查询单个分析记录详情
-        """
         analysis = await BinhuaAnalysisDao.get_analysis_detail_by_id(
             query_db, analysis_id=analysis_id
         )
         if analysis:
-            return BinhuaAnalysisModel(**CamelCaseUtil.transform_result(analysis))
-        else:
-            return BinhuaAnalysisModel()  # 返回空模型，类似 PeopleService 处理
+            item = CamelCaseUtil.transform_result(analysis)
+            video_path = item.get("videoPath") or item.get("video_path")
+            if video_path and item.get("id"):
+                item["videoUrl"] = f"/analysis/video/{item['id']}"
+                item["videoPath"] = str(video_path).strip()
+            return BinhuaAnalysisModel(**item)
+        return BinhuaAnalysisModel()
 
     @classmethod
     async def add_analysis_services(
         cls, query_db: AsyncSession, analysis: BinhuaAnalysisModel
     ) -> int:
-        """
-        新增分析记录（通常由视频分析后调用）
-        create_time 使用数据库默认值
-        """
         try:
             analysis_id = await BinhuaAnalysisDao.add_analysis_dao(query_db, analysis)
             await query_db.commit()
@@ -93,21 +89,15 @@ class BinhuaAnalysisService:
         analysis_update: BinhuaAnalysisUpdateModel,
         analysis_id: int,
     ):
-        """
-        更新分析记录（支持部分更新，如手动校正幸福指数、风险等）
-        """
-        # 检查记录是否存在
         if not await BinhuaAnalysisDao.get_analysis_detail_by_id(
             query_db, analysis_id=analysis_id
         ):
             raise AnalysisNotFoundError('分析记录不存在')
 
         try:
-            # 只更新传入的字段
             update_dict = analysis_update.model_dump(exclude_unset=True)
             if not update_dict:
-                return  # 无需更新
-
+                return
             update_dict["id"] = analysis_id
             await BinhuaAnalysisDao.edit_analysis_dao(query_db, update_dict)
             await query_db.commit()
@@ -122,9 +112,6 @@ class BinhuaAnalysisService:
     async def delete_analysis_services(
         cls, query_db: AsyncSession, analysis_id: int
     ) -> bool:
-        """
-        单条物理删除分析记录
-        """
         if await BinhuaAnalysisDao.get_analysis_detail_by_id(
             query_db, analysis_id=analysis_id
         ):
@@ -144,9 +131,6 @@ class BinhuaAnalysisService:
     async def batch_delete_analysis_services(
         cls, query_db: AsyncSession, delete_model: DeleteBinhuaAnalysisModel
     ):
-        """
-        批量物理删除分析记录（支持前端传入逗号分隔的ID字符串）
-        """
         analysis_ids_str = delete_model.analysis_ids.strip()
         if not analysis_ids_str:
             return

@@ -1,5 +1,18 @@
 // analysis.js
 import request from '@/utils/request'
+import { ElMessage } from 'element-plus'
+import Cookies from 'js-cookie'
+
+// ====================== Token 获取函数 ======================
+const getToken = () => {
+  return (
+    Cookies.get('Admin-Token') ||
+    localStorage.getItem('Admin-Token') ||
+    localStorage.getItem('token') ||
+    localStorage.getItem('access_token') ||
+    ''
+  )
+}
 
 // 查询分析记录列表（分页）
 export function listAnalysis(query) {
@@ -60,6 +73,8 @@ export function batchDelAnalysis(data) {
     data
   })
 }
+
+// 导出分析记录
 export function exportAnalysis(query) {
   const form = new URLSearchParams()
   Object.entries(query).forEach(([k, v]) => {
@@ -69,9 +84,99 @@ export function exportAnalysis(query) {
   return request({
     url: '/analysis/export',
     method: 'post',
-    data: form,                     // 必须用 data（post + form-urlencoded）
-    responseType: 'blob',           // 必须在这里
-    // 如果你的 request 封装强制加了 Content-Type，这里可以不写
-    // headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    data: form,
+    responseType: 'blob'
   })
+}
+
+// ====================== 视频播放相关（支持 Token 校验） ======================
+
+/**
+ * 获取视频播放 Blob URL（用于 <video> 标签）
+ */
+export async function getVideoBlobUrl(analysisId) {
+  const token = getToken()
+  if (!token) {
+    ElMessage.error('Token 不存在，请重新登录')
+    throw new Error('Token is empty')
+  }
+
+  const response = await fetch(`/dev-api/analysis/video/${analysisId}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'video/mp4, video/*, */*'
+    },
+    cache: 'no-cache'
+  })
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      ElMessage.error('登录已过期，请重新登录')
+    } else if (response.status === 404) {
+      ElMessage.error('视频文件不存在')
+    } else {
+      ElMessage.error(`视频请求失败: ${response.status}`)
+    }
+    throw new Error(`请求失败: ${response.status}`)
+  }
+
+  const blob = await response.blob()
+  return URL.createObjectURL(blob)
+}
+
+/**
+ * 下载视频（带 Token，手动触发下载）
+ */
+export async function downloadVideo(analysisId, fileName = '分析视频.mp4') {
+  const token = getToken()
+  if (!token) {
+    ElMessage.error('Token 不存在，请重新登录')
+    return
+  }
+
+  try {
+    const response = await fetch(`/dev-api/analysis/video/${analysisId}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'video/mp4, video/*, */*'
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error(`下载失败: ${response.status}`)
+    }
+
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    ElMessage.success('下载已开始')
+  } catch (err) {
+    console.error('下载失败', err)
+    ElMessage.error('下载失败，请检查登录状态')
+  }
+}
+
+export default {
+  listAnalysis,
+  getAnalysisHistory,
+  getAnalysis,
+  addAnalysis,
+  updateAnalysis,
+  delAnalysis,
+  batchDelAnalysis,
+  exportAnalysis,
+  getVideoBlobUrl,
+  downloadVideo
 }
