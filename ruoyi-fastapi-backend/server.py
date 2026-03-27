@@ -43,6 +43,7 @@ from module_xuzhou.controller.alarm_controller import alarmController
 from module_task.monitor_controller import monitorController
 from module_task.inference_monitor import start_inference_monitor
 from sub_applications.handle import handle_sub_applications
+from module_xuzhou.controller.agent_controller import agent_controller
 from utils.log_util import logger
 from hik_vision.hik_vision import videoController
 
@@ -99,7 +100,7 @@ controller_list = [
     {'router': configController, 'tags': ['系统管理-参数管理']},
     {'router': noticeController, 'tags': ['系统管理-通知公告管理']},
     {'router': logController, 'tags': ['系统管理-日志管理']},
-    {"router":videoController,'tags': ['系统监控-数据监控']},
+    {"router" : videoController,'tags': ['系统监控-数据监控']},
     {'router': onlineController, 'tags': ['系统监控-在线用户']},
     {'router': jobController, 'tags': ['系统监控-定时任务']},
     {'router': serverController, 'tags': ['系统监控-菜单管理']},
@@ -110,12 +111,12 @@ controller_list = [
     {'router': algorithmController, 'tags': ['算法列表']},
     {'router': sceneController, 'tags': ['场景列表']},
     {'router': analysis_controller,'tags':['分析列表']},
-    {'router': videoController, 'tags': ['视频管理']},
     {'router': commandController, 'tags': ['场景监控']},
     {'router': alarmController, 'tags': ['预警管理']},
     {'router': people_controller, 'tags': ['人员']},
     {'router': group_controller, 'tags': ['人员组']},
     {'router': monitorController, 'tags': ['推理监控']},
+    {'router': agent_controller, 'tags': ['AI Agent']}
 ]
 
 
