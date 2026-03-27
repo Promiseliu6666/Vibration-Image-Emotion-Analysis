@@ -55,9 +55,8 @@
       </el-form>
     </el-card>
 
-    <!-- 双图表布局：饼图 + 折线图 -->
+    <!-- 双图表布局 -->
     <div class="chart-group">
-      <!-- 幸福等级分布饼图 -->
       <el-card class="chart-card" shadow="hover">
         <template #header>
           <div class="card-header">
@@ -67,7 +66,6 @@
         <div ref="happinessChart" class="chart-container" />
       </el-card>
 
-      <!-- 幸福指数趋势折线图 -->
       <el-card class="chart-card" shadow="hover">
         <template #header>
           <div class="card-header">
@@ -130,7 +128,7 @@
             {{ formatDate(row.createTime) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right" align="center">
+        <el-table-column label="操作" width="250" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleView(row)">查看</el-button>
             <el-button type="warning" link @click="handleEdit(row)">编辑</el-button>
@@ -173,7 +171,7 @@
             :precision="2"
             :step="0.01"
             :min="0"
-            :max="1"
+            :max="100"
             style="width: 100%"
           />
         </el-form-item>
@@ -199,127 +197,135 @@
       </template>
     </el-dialog>
 
-<!-- 详情抽屉（美化版） -->
-<el-drawer v-model="drawerVisible" title="分析记录详情" size="70%" direction="rtl">
-  <div class="detail-wrapper" style="padding: 20px;">
-    <!-- 基础信息（美化：浅灰表头+紧凑布局） -->
-    <el-descriptions :column="2" border class="mb-4" size="small">
-      <template #header>
-        <span class="font-bold" style="font-size: 16px;">基础信息</span>
-      </template>
-      <el-descriptions-item label="ID" label-class="desc-label">
-        <span style="font-weight: 500;">{{ detailData.id || '-' }}</span>
-      </el-descriptions-item>
-      <el-descriptions-item label="视频来源" label-class="desc-label">
-        <span style="font-weight: 500;">{{ detailData.source || '-' }}</span>
-      </el-descriptions-item>
-      <el-descriptions-item label="人名" label-class="desc-label">
-        <span style="font-weight: 500;">{{ detailData.personName || '-' }}</span>
-      </el-descriptions-item>
-      <el-descriptions-item label="人员ID" label-class="desc-label">
-        <span style="font-weight: 500;">{{ detailData.personId || '-' }}</span>
-      </el-descriptions-item>
-      <el-descriptions-item label="幸福指数" label-class="desc-label">
-        <span style="font-weight: 500; color: #67C23A;">{{ detailData.happinessIndex || '-' }}</span>
-      </el-descriptions-item>
-      <el-descriptions-item label="幸福等级" label-class="desc-label">
-        <el-tag size="small" type="info">{{ detailData.happinessLevel || '-' }}</el-tag>
-      </el-descriptions-item>
-      <el-descriptions-item label="安全风险" label-class="desc-label">
-        <el-tag size="small" type="warning">{{ detailData.safetyRisk || '-' }}</el-tag>
-      </el-descriptions-item>
-      <el-descriptions-item label="创建时间" label-class="desc-label">
-        <span style="font-weight: 500;">{{ detailData.createTime || '-' }}</span>
-      </el-descriptions-item>
-    </el-descriptions>
+    <!-- 详情抽屉 -->
+    <el-drawer 
+      v-model="drawerVisible" 
+      title="分析记录详情" 
+      size="72%" 
+      direction="rtl"
+    >
+      <div class="detail-wrapper">
+        <!-- 基础信息 -->
+        <el-descriptions :column="2" border size="small" class="mb-4">
+          <template #header>
+            <span class="section-title">基础信息</span>
+          </template>
+          <el-descriptions-item label="ID">{{ detailData.id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="视频来源">{{ detailData.source || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="人名">{{ detailData.personName || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="人员ID">{{ detailData.personId || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="幸福指数">
+            <span style="color: #67C23A; font-weight: 500;">{{ detailData.happinessIndex || '-' }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="幸福等级">
+            <el-tag size="small" :type="getLevelTagType(detailData.happinessLevel)">
+              {{ detailData.happinessLevel || '-' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="安全风险">
+            <el-tag size="small" type="warning">{{ detailData.safetyRisk || '-' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ formatDate(detailData.createTime) }}</el-descriptions-item>
+        </el-descriptions>
 
-    <!-- E1-E14 心理指标数值（美化：4列布局+浅色背景） -->
-    <el-card shadow="hover" class="mb-4" style="border-radius: 8px;">
-      <template #header>
-        <span class="font-bold" style="font-size: 16px;">E1-E14 心理指标数值</span>
-      </template>
-      <el-descriptions :column="4" border size="small">
-        <el-descriptions-item label="E1 攻击性" label-class="desc-label">
-          <span style="font-weight: 500;">{{ detailData.e1 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E2 压力" label-class="desc-label">
-          <span style="font-weight: 500;">{{ detailData.e2 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E3 焦虑" label-class="desc-label">
-          <span style="font-weight: 500;">{{ detailData.e3 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E4 可疑" label-class="desc-label">
-          <span style="font-weight: 500;">{{ detailData.e4 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E5 平衡" label-class="desc-label">
-          <span style="font-weight: 500; color: #909399;">{{ detailData.e5 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E6 魅力" label-class="desc-label">
-          <span style="font-weight: 500; color: #909399;">{{ detailData.e6 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E7 能量" label-class="desc-label">
-          <span style="font-weight: 500; color: #909399;">{{ detailData.e7 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E8 自我调节" label-class="desc-label">
-          <span style="font-weight: 500;">{{ detailData.e8 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E9 抑制" label-class="desc-label">
-          <span style="font-weight: 500;">{{ detailData.e9 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E10 神经质" label-class="desc-label">
-          <span style="font-weight: 500;">{{ detailData.e10 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E11 抑郁" label-class="desc-label">
-          <span style="font-weight: 500; color: #909399;">{{ detailData.e11 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E12 幸福" label-class="desc-label">
-          <span style="font-weight: 500; color: #67C23A;">{{ detailData.e12 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E13 外向性" label-class="desc-label">
-          <span style="font-weight: 500;">{{ detailData.e13 || '-' }}</span>
-        </el-descriptions-item>
-        <el-descriptions-item label="E14 稳定性" label-class="desc-label">
-          <span style="font-weight: 500;">{{ detailData.e14 || '-' }}</span>
-        </el-descriptions-item>
-      </el-descriptions>
-    </el-card>
+        <!-- 视频区域 -->
+        <el-card shadow="hover" class="video-card mb-4">
+          <template #header>
+            <div class="video-header">
+              <span class="section-title">分析视频（10秒录制）</span>
+              <el-tag v-if="hasVideo" type="success" size="small">已录制</el-tag>
+              <el-tag v-else type="info" size="small">暂无视频</el-tag>
+            </div>
+          </template>
 
-    <!-- E1-E14 计算方法说明（两列布局，一行两个） -->
-    <el-card shadow="hover" style="border-radius: 8px;">
-      <template #header>
-        <span class="font-bold" style="font-size: 16px;">E1-E14 计算方法说明</span>
-      </template>
-      <div style="padding: 15px; font-size: 14px; color: #303133; background-color: #fafafa; border-radius: 6px;">
-        <div style="display: flex; flex-wrap: wrap; gap: 20px;">
-          <!-- 第一列 -->
-          <div style="flex: 1; min-width: 300px;">
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E1 攻击性：</strong>数值越高，人的攻击性、冲动倾向越强</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E2 压力：</strong>数值越高，心理压力越大、情绪越紧绷</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E3 焦虑：</strong>数值越高，焦虑感越强、情绪越不安</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E4 可疑：</strong>数值越高，多疑、猜忌等负面情绪越明显</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E5 平衡：</strong>数值越高，情绪状态越平稳、无明显极端倾向</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E6 魅力：</strong>数值越高，亲和力/魅力越强、情绪越亲和</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E7 能量：</strong>数值越高，精力越充沛、精神状态越好</div>
+          <div v-if="hasVideo" class="video-player-wrapper">
+            <div v-if="!videoBlobUrl" class="loading-video">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              <span>视频加载中...</span>
+            </div>
+
+            <video 
+              v-if="videoBlobUrl"
+              :src="videoBlobUrl"
+              controls 
+              controlsList="nodownload"
+              class="analysis-video"
+              @error="handleVideoError"
+              @loadedmetadata="onVideoLoaded"
+              @loadstart="onVideoLoadStart"
+              preload="metadata"
+              crossorigin="anonymous"
+              playsinline
+            >
+              您的浏览器不支持视频播放
+            </video>
+
+            <div class="video-footer" v-if="videoBlobUrl">
+              <small>
+                当前地址: Blob URL |
+                <a href="javascript:void(0)" @click="downloadCurrentVideo" class="download-link">直接下载</a>
+              </small>
+            </div>
           </div>
-          <!-- 第二列 -->
-          <div style="flex: 1; min-width: 300px;">
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E8 自我调节：</strong>数值越高，情绪自我调节能力越强、状态越稳定</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E9 抑制：</strong>数值越高，对外部刺激的反应越慢、抑制性越强</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E10 神经质：</strong>数值越高，抑制性波动越大，神经质倾向越明显</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E11 抑郁：</strong>数值越高，阴郁、低落的情绪越明显</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E12 幸福：</strong>数值越高，愉悦感、幸福感越强</div>
-            <div style="margin-bottom: 10px; line-height: 1.6;"><strong>E13 外向性：</strong>数值越高，性格外向程度越高</div>
-            <div style="line-height: 1.6;"><strong>E14 稳定性：</strong>数值越高，整体情绪和生理状态越稳定</div>
+
+          <div v-else class="no-video">
+            <el-empty description="该分析记录暂无视频文件" image-size="120" />
           </div>
-        </div>
+        </el-card>
+
+        <!-- E1-E14 指标 -->
+        <el-card shadow="hover" class="mb-4">
+          <template #header>
+            <span class="section-title">E1-E14 心理指标数值</span>
+          </template>
+          <el-descriptions :column="4" border size="small">
+            <el-descriptions-item label="E1 攻击性">{{ detailData.e1 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E2 压力">{{ detailData.e2 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E3 焦虑">{{ detailData.e3 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E4 可疑">{{ detailData.e4 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E5 平衡">{{ detailData.e5 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E6 魅力">{{ detailData.e6 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E7 能量">{{ detailData.e7 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E8 自我调节">{{ detailData.e8 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E9 抑制">{{ detailData.e9 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E10 神经质">{{ detailData.e10 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E11 抑郁">{{ detailData.e11 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E12 幸福">{{ detailData.e12 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E13 外向性">{{ detailData.e13 || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="E14 稳定性">{{ detailData.e14 || '-' }}</el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
+        <!-- 计算方法说明 -->
+        <el-card shadow="hover">
+          <template #header>
+            <span class="section-title">E1-E14 计算方法说明</span>
+          </template>
+          <div class="explanation">
+            <div class="explanation-column">
+              <div><strong>E1 攻击性：</strong>数值越高，人的攻击性、冲动倾向越强</div>
+              <div><strong>E2 压力：</strong>数值越高，心理压力越大、情绪越紧绷</div>
+              <div><strong>E3 焦虑：</strong>数值越高，焦虑感越强、情绪越不安</div>
+              <div><strong>E4 可疑：</strong>数值越高，多疑、猜忌等负面情绪越明显</div>
+              <div><strong>E5 平衡：</strong>数值越高，情绪状态越平稳、无明显极端倾向</div>
+              <div><strong>E6 魅力：</strong>数值越高，亲和力/魅力越强、情绪越亲和</div>
+              <div><strong>E7 能量：</strong>数值越高，精力越充沛、精神状态越好</div>
+            </div>
+            <div class="explanation-column">
+              <div><strong>E8 自我调节：</strong>数值越高，情绪自我调节能力越强、状态越稳定</div>
+              <div><strong>E9 抑制：</strong>数值越高，对外部刺激的反应越慢、抑制性越强</div>
+              <div><strong>E10 神经质：</strong>数值越高，抑制性波动越大，神经质倾向越明显</div>
+              <div><strong>E11 抑郁：</strong>数值越高，阴郁、低落的情绪越明显</div>
+              <div><strong>E12 幸福：</strong>数值越高，愉悦感、幸福感越强</div>
+              <div><strong>E13 外向性：</strong>数值越高，性格外向程度越高</div>
+              <div><strong>E14 稳定性：</strong>数值越高，整体情绪和生理状态越稳定</div>
+            </div>
+          </div>
+        </el-card>
       </div>
-    </el-card>
-  </div>
-</el-drawer>
-<!-- 仅保留内联样式，无额外style标签，避免报错 -->
-  
+    </el-drawer>
 
-    <!-- 导出对话框（可重新选择筛选条件） -->
+    <!-- 导出对话框 -->
     <el-dialog
       title="导出Excel - 设置筛选条件"
       v-model="exportDialogVisible"
@@ -406,7 +412,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted, getCurrentInstance, nextTick } from 'vue'
+import { ref, watch, onMounted, onUnmounted, getCurrentInstance, nextTick, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import {
@@ -416,9 +422,11 @@ import {
   updateAnalysis,
   delAnalysis,
   batchDelAnalysis,
-  exportAnalysis
+  getVideoBlobUrl,
+  downloadVideo
 } from '@/api/binhua/analysis'
 
+// ==================== 数据定义 ====================
 const queryParams = ref({
   personId: null,
   personName: '',
@@ -459,26 +467,53 @@ const rules = {
 }
 
 const drawerVisible = ref(false)
-const detailData = ref(null)
+const detailData = ref({})
 
-// 双图表实例
-const happinessChart = ref(null)
-const trendChart = ref(null)
-let pieChartInstance = null
-let lineChartInstance = null
+// ==================== 视频相关 ====================
+const videoBlobUrl = ref('')
 
-// 导出对话框相关
-const exportDialogVisible = ref(false)
-const exportFileName = ref('')
-const queryParamsExport = ref({
-  personId: null,
-  personName: '',
-  source: '',
-  startTime: '',
-  endTime: ''
+const hasVideo = computed(() => {
+  const has = !!(detailData.value?.id && (detailData.value.videoUrl || detailData.value.videoPath || detailData.value.video_path))
+  console.log(`[视频日志] hasVideo 判断结果: ${has}，ID=${detailData.value?.id}`)
+  return has
 })
 
-// 幸福等级标签颜色映射
+const loadVideo = async () => {
+  videoBlobUrl.value = ''
+  if (!detailData.value?.id) return
+
+  try {
+    console.log(`[视频日志] 开始加载视频 ID=${detailData.value.id}`)
+    const blobUrl = await getVideoBlobUrl(detailData.value.id)
+    videoBlobUrl.value = blobUrl
+    console.log(`[视频日志] Blob URL 创建成功: ${blobUrl}`)
+  } catch (err) {
+    console.error('[视频加载失败]', err)
+    videoBlobUrl.value = ''
+    ElMessage.error('视频加载失败，请检查登录状态')
+  }
+}
+
+const downloadCurrentVideo = () => {
+  if (!detailData.value?.id) return
+  downloadVideo(detailData.value.id, `分析视频_${detailData.value.id}.mp4`)
+}
+
+const onVideoLoadStart = () => console.log(`[视频日志] loadstart → 开始请求视频`)
+const onVideoLoaded = () => console.log(`[视频日志] loadedmetadata → 元数据加载完成`)
+
+const handleVideoError = (e) => {
+  const video = e.target
+  console.error('=== 【视频加载失败】详细诊断信息 ===')
+  console.error('当前 src:', videoBlobUrl.value)
+  if (video?.error) {
+    console.error('MediaError.code:', video.error.code)
+    console.error('MediaError.message:', video.error.message)
+  }
+  ElMessage.error(`视频加载失败（错误码: ${video?.error?.code || '未知'}）`)
+}
+
+// ==================== 工具函数 ====================
 const getLevelTagType = (level) => {
   const typeMap = {
     '高': 'success',
@@ -489,27 +524,10 @@ const getLevelTagType = (level) => {
   return typeMap[level] || 'info'
 }
 
-// 统计幸福等级数量
-const getLevelCount = () => {
-  const count = { 高: 0, 中: 0, 低: 0, 未知: 0 }
-  analysisList.value.forEach(item => {
-    const level = item.happinessLevel
-    if (level in count) count[level]++
-    else count.未知++
-  })
-  return count
-}
-
-// 日期格式化（兼容ISO、时间戳、字符串）
 const formatDate = (date) => {
   if (!date) return '-'
   try {
-    let parsedDate
-    if (!isNaN(Number(date))) {
-      parsedDate = new Date(Number(date))
-    } else {
-      parsedDate = new Date(date.replace('T', ' ').replace(/\..+/, ''))
-    }
+    let parsedDate = !isNaN(Number(date)) ? new Date(Number(date)) : new Date(date.replace('T', ' ').replace(/\..+/, ''))
     if (isNaN(parsedDate.getTime())) return '-'
     return parsedDate.toLocaleString('zh-CN', {
       year: 'numeric',
@@ -523,24 +541,14 @@ const formatDate = (date) => {
   }
 }
 
-// 提取纯日期（YYYY-MM-DD），兼容各种后端时间格式
-const getPureDate = (dateStr) => {
-  if (!dateStr) return null
-  try {
-    let d
-    if (!isNaN(Number(dateStr))) {
-      d = new Date(Number(dateStr))
-    } else {
-      d = new Date(dateStr.replace('T', ' ').replace(/\..+/, ''))
-    }
-    if (isNaN(d.getTime())) return null
-    const year = d.getFullYear()
-    const month = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
-  } catch {
-    return null
-  }
+const getLevelCount = () => {
+  const count = { 高: 0, 中: 0, 低: 0, 未知: 0 }
+  analysisList.value.forEach(item => {
+    const level = item.happinessLevel
+    if (level in count) count[level]++
+    else count.未知++
+  })
+  return count
 }
 
 const getTrendData = () => {
@@ -549,17 +557,13 @@ const getTrendData = () => {
     const t2 = new Date(b.createTime || 0).getTime()
     return t1 - t2
   })
-
   const showList = sortedList.slice(0, 10)
-
   return {
-    xAxis: showList.map((item, i) => `第${i+1}条`),
-    // 关键：把 0~100 的值除以 100，变成 0~1
+    xAxis: showList.map((_, i) => `第${i+1}条`),
     yAxis: showList.map(item => (Number(item.happinessIndex) || 0) / 100)
   }
 }
 
-// 饼图配置（不变）
 const getPieChartOption = () => {
   const levelCount = getLevelCount()
   const totalCount = analysisList.value.length || 1
@@ -570,26 +574,10 @@ const getPieChartOption = () => {
     '未知': '#909399'
   }
   const data = [
-    { 
-      value: levelCount.高, 
-      name: `高 (${((levelCount.高 / totalCount) * 100).toFixed(1)}%)`,
-      itemStyle: { color: colorMap['高'] }
-    },
-    { 
-      value: levelCount.中, 
-      name: `中 (${((levelCount.中 / totalCount) * 100).toFixed(1)}%)`,
-      itemStyle: { color: colorMap['中'] }
-    },
-    { 
-      value: levelCount.低, 
-      name: `低 (${((levelCount.低 / totalCount) * 100).toFixed(1)}%)`,
-      itemStyle: { color: colorMap['低'] }
-    },
-    { 
-      value: levelCount.未知, 
-      name: `未知 (${((levelCount.未知 / totalCount) * 100).toFixed(1)}%)`,
-      itemStyle: { color: colorMap['未知'] }
-    }
+    { value: levelCount.高, name: `高 (${((levelCount.高 / totalCount) * 100).toFixed(1)}%)`, itemStyle: { color: colorMap['高'] } },
+    { value: levelCount.中, name: `中 (${((levelCount.中 / totalCount) * 100).toFixed(1)}%)`, itemStyle: { color: colorMap['中'] } },
+    { value: levelCount.低, name: `低 (${((levelCount.低 / totalCount) * 100).toFixed(1)}%)`, itemStyle: { color: colorMap['低'] } },
+    { value: levelCount.未知, name: `未知 (${((levelCount.未知 / totalCount) * 100).toFixed(1)}%)`, itemStyle: { color: colorMap['未知'] } }
   ].filter(item => item.value > 0)
 
   return {
@@ -609,84 +597,64 @@ const getPieChartOption = () => {
     }]
   }
 }
-// 最终版：整张图横向铺满红黄绿背景 + 0~100分纵坐标
+
+// ==================== 【修改重点】美化版幸福指数趋势图 ====================
 const getLineChartOption = () => {
   const trendData = getTrendData()
   const hasData = trendData.xAxis.length > 0
 
-  // 主折线配置
   const mainSeries = {
     name: '幸福指数',
     type: 'line',
-    data: hasData ? trendData.yAxis.map(v => v * 100) : [0], // 转成0~100分
+    data: hasData ? trendData.yAxis.map(v => v * 100) : [0],
     symbol: 'circle',
     symbolSize: 10,
-    lineStyle: {
-      width: 3,
-      type: 'solid',
-      color: '#F56C6C' // 红色连线
-    },
+    lineStyle: { width: 3, color: '#F56C6C' },
     itemStyle: {
       color: function(params) {
         const value = params.value
-        if (value < 30) return '#F56C6C'    // 红（低）
-        if (value < 70) return '#FFD050'    // 亮黄（中）
-        return '#67C23A'                     // 绿（高）
+        if (value < 30) return '#F56C6C'    // 低
+        if (value < 70) return '#FFD050'    // 中
+        return '#67C23A'                    // 高
       },
       borderWidth: 2,
       borderColor: '#fff'
     },
-    z: 10, // 保证折线在最上层
-    markLine: { data: [] }
+    z: 10
   }
 
-  // 背景分段：用 markArea 从 X轴最左到最右铺满
+  // 背景分段区域
   const backgroundSeries = [
-    // 低等级：0~30分，浅红
+    // 低等级：0~30 浅红
     {
       type: 'line',
       data: [],
       markArea: {
         silent: true,
         itemStyle: { color: 'rgba(245, 102, 102, 0.15)' },
-        data: [
-          [
-            { xAxis: 0, yAxis: 0 },      // 左下角：第1条，0分
-            { xAxis: 'max', yAxis: 30 }  // 右上角：最后一条，30分
-          ]
-        ]
+        data: [[ { xAxis: 0, yAxis: 0 }, { xAxis: 'max', yAxis: 30 } ]]
       },
       lineStyle: { opacity: 0 }
     },
-    // 中等级：30~70分，亮黄
+    // 中等级：30~70 浅黄
     {
       type: 'line',
       data: [],
       markArea: {
         silent: true,
         itemStyle: { color: 'rgba(255, 208, 80, 0.25)' },
-        data: [
-          [
-            { xAxis: 0, yAxis: 30 },
-            { xAxis: 'max', yAxis: 70 }
-          ]
-        ]
+        data: [[ { xAxis: 0, yAxis: 30 }, { xAxis: 'max', yAxis: 70 } ]]
       },
       lineStyle: { opacity: 0 }
     },
-    // 高等级：70~100分，浅绿
+    // 高等级：70~100 浅绿
     {
       type: 'line',
       data: [],
       markArea: {
         silent: true,
         itemStyle: { color: 'rgba(103, 194, 58, 0.15)' },
-        data: [
-          [
-            { xAxis: 0, yAxis: 70 },
-            { xAxis: 'max', yAxis: 100 }
-          ]
-        ]
+        data: [[ { xAxis: 0, yAxis: 70 }, { xAxis: 'max', yAxis: 100 } ]]
       },
       lineStyle: { opacity: 0 }
     }
@@ -697,29 +665,17 @@ const getLineChartOption = () => {
       trigger: 'axis',
       formatter: function(params) {
         const val = params[0].value
-        let level = ''
-        if (val < 30) level = '低'
-        else if (val < 70) level = '中'
-        else level = '高'
+        let level = val < 30 ? '低' : val < 70 ? '中' : '高'
         return `${params[0].name}<br/>幸福指数：${val.toFixed(1)}分<br/>等级：${level}`
       },
       axisPointer: { type: 'shadow' }
     },
-    grid: {
-      left: '5%',
-      right: '5%',
-      bottom: '15%',
-      top: '10%',
-      containLabel: true
-    },
+    grid: { left: '5%', right: '5%', bottom: '15%', top: '10%', containLabel: true },
     xAxis: {
       type: 'category',
       data: hasData ? trendData.xAxis : ['暂无数据'],
-      axisLabel: {
-        rotate: 0,
-        fontSize: 12
-      },
-      boundaryGap: false // 关键：让X轴左右无留白，背景贴边
+      axisLabel: { fontSize: 12 },
+      boundaryGap: false
     },
     yAxis: {
       type: 'value',
@@ -727,28 +683,33 @@ const getLineChartOption = () => {
       min: 0,
       max: 100,
       interval: 20,
-      axisLabel: {
-        formatter: '{value} 分'
-      }
+      axisLabel: { formatter: '{value} 分' }
     },
-    // 先放背景，再放主折线，保证折线在上面
     series: [...backgroundSeries, mainSeries]
   }
 }
-// 初始化双图表（确保DOM已渲染）
+
+// ==================== 图表初始化 ====================
+const happinessChart = ref(null)
+const trendChart = ref(null)
+let pieChartInstance = null
+let lineChartInstance = null
+
 const initCharts = async () => {
   await nextTick()
-  // 初始化饼图
-  if (happinessChart.value) {
-    if (pieChartInstance) pieChartInstance.dispose()
-    pieChartInstance = echarts.init(happinessChart.value, 'macarons')
-    pieChartInstance.setOption(getPieChartOption())
-  }
-  // 初始化折线图
-  if (trendChart.value) {
-    if (lineChartInstance) lineChartInstance.dispose()
-    lineChartInstance = echarts.init(trendChart.value, 'macarons')
-    lineChartInstance.setOption(getLineChartOption())
+  try {
+    if (happinessChart.value) {
+      if (pieChartInstance) pieChartInstance.dispose()
+      pieChartInstance = echarts.init(happinessChart.value, 'macarons')
+      pieChartInstance.setOption(getPieChartOption())
+    }
+    if (trendChart.value) {
+      if (lineChartInstance) lineChartInstance.dispose()
+      lineChartInstance = echarts.init(trendChart.value, 'macarons')
+      lineChartInstance.setOption(getLineChartOption())
+    }
+  } catch (err) {
+    console.error('ECharts 初始化失败:', err)
   }
 }
 
@@ -757,17 +718,17 @@ const resizeHandler = () => {
   lineChartInstance?.resize()
 }
 
-// 监听数据变化，强制更新图表
 watch(analysisList, async () => {
   await nextTick()
-  if (pieChartInstance) {
-    pieChartInstance.setOption(getPieChartOption(), true)
+  try {
+    if (pieChartInstance) pieChartInstance.setOption(getPieChartOption(), true)
+    if (lineChartInstance) lineChartInstance.setOption(getLineChartOption(), true)
+  } catch (err) {
+    console.error('ECharts setOption 失败:', err)
   }
-  if (lineChartInstance) {
-    lineChartInstance.setOption(getLineChartOption(), true)
-  }
-}, { deep: true, immediate: true })
+}, { deep: true })
 
+// ==================== 生命周期 ====================
 onMounted(() => {
   initCharts()
   window.addEventListener('resize', resizeHandler)
@@ -776,16 +737,11 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', resizeHandler)
-  if (pieChartInstance) {
-    pieChartInstance.dispose()
-    pieChartInstance = null
-  }
-  if (lineChartInstance) {
-    lineChartInstance.dispose()
-    lineChartInstance = null
-  }
+  pieChartInstance?.dispose()
+  lineChartInstance?.dispose()
 })
 
+// ==================== 数据请求方法 ====================
 const getList = async () => {
   loading.value = true
   try {
@@ -795,8 +751,8 @@ const getList = async () => {
     }
 
     if (queryParams.value.personId != null) params.personId = queryParams.value.personId
-    if (queryParams.value.personName.trim()) params.personName = queryParams.value.personName.trim()
-    if (queryParams.value.source.trim()) params.source = queryParams.value.source.trim()
+    if (queryParams.value.personName?.trim()) params.personName = queryParams.value.personName.trim()
+    if (queryParams.value.source?.trim()) params.source = queryParams.value.source.trim()
     if (queryParams.value.startTime) params.startTime = `${queryParams.value.startTime} 00:00:00`
     if (queryParams.value.endTime) params.endTime = `${queryParams.value.endTime} 23:59:59`
 
@@ -860,9 +816,14 @@ const handleEdit = async (row) => {
   }
 }
 
-const handleView = (row) => {
+const handleView = async (row) => {
+  console.log('[视频日志] handleView 被调用，当前记录 ID=', row.id)
   detailData.value = { ...row }
   drawerVisible.value = true
+
+  if (row.id) {
+    await loadVideo()
+  }
 }
 
 const handleDelete = async (row) => {
@@ -906,19 +867,21 @@ const submitForm = async () => {
   }
 }
 
-// 导出相关
-const openExportDialog = () => {
-  queryParamsExport.value = {
-    personId: queryParams.value.personId,
-    personName: queryParams.value.personName,
-    source: queryParams.value.source,
-    startTime: queryParams.value.startTime,
-    endTime: queryParams.value.endTime
-  }
+// ==================== 导出相关 ====================
+const exportDialogVisible = ref(false)
+const exportFileName = ref('')
+const queryParamsExport = ref({
+  personId: null,
+  personName: '',
+  source: '',
+  startTime: '',
+  endTime: ''
+})
 
+const openExportDialog = () => {
+  queryParamsExport.value = { ...queryParams.value }
   const dateStr = new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')
   exportFileName.value = `幸福分析记录_${dateStr}`
-
   exportDialogVisible.value = true
 }
 
@@ -943,31 +906,19 @@ const confirmExport = () => {
     pageSize: 999999,
   }
 
-  if (queryParamsExport.value.personId != null) {
-    params.personId = queryParamsExport.value.personId
-  }
-  if (queryParamsExport.value.personName?.trim()) {
-    params.personName = queryParamsExport.value.personName.trim()
-  }
-  if (queryParamsExport.value.source?.trim()) {
-    params.source = queryParamsExport.value.source.trim()
-  }
-  if (queryParamsExport.value.startTime) {
-    params.startTime = queryParamsExport.value.startTime + ' 00:00:00'
-  }
-  if (queryParamsExport.value.endTime) {
-    params.endTime = queryParamsExport.value.endTime + ' 23:59:59'
-  }
+  if (queryParamsExport.value.personId != null) params.personId = queryParamsExport.value.personId
+  if (queryParamsExport.value.personName?.trim()) params.personName = queryParamsExport.value.personName.trim()
+  if (queryParamsExport.value.source?.trim()) params.source = queryParamsExport.value.source.trim()
+  if (queryParamsExport.value.startTime) params.startTime = queryParamsExport.value.startTime + ' 00:00:00'
+  if (queryParamsExport.value.endTime) params.endTime = queryParamsExport.value.endTime + ' 23:59:59'
 
   const filename = (exportFileName.value || '幸福分析记录') + '.xlsx'
 
   proxy.download('/analysis/export', params, filename)
-    .then(() => {
-      ElMessage.success('导出成功')
-    })
+    .then(() => ElMessage.success('导出成功'))
     .catch(err => {
       console.error('导出失败', err)
-      ElMessage.error('导出失败，请查看控制台或后端日志')
+      ElMessage.error('导出失败')
     })
     .finally(() => {
       exportLoading.value = false
@@ -979,22 +930,27 @@ const confirmExport = () => {
 .analysis-container {
   padding: 20px;
 }
+
 .search-card {
   margin-bottom: 20px;
 }
+
 .chart-group {
   display: flex;
   gap: 20px;
   margin-bottom: 20px;
 }
+
 .chart-card {
   flex: 1;
   border-radius: 8px;
   overflow: hidden;
 }
+
 .table-card {
   margin-bottom: 20px;
 }
+
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -1002,21 +958,93 @@ const confirmExport = () => {
   font-size: 16px;
   font-weight: 600;
 }
+
 .card-header > div {
   display: flex;
   gap: 8px;
 }
+
 .pagination-center {
   margin: 20px 0;
   text-align: center;
 }
+
 .chart-container {
   width: 100%;
   height: 340px;
 }
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.video-card {
+  margin-bottom: 20px;
+}
+
+.video-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.video-player-wrapper {
+  position: relative;
+}
+
+.analysis-video {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 8px;
+  background-color: #000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.video-footer {
+  margin-top: 10px;
+  text-align: center;
+  color: #666;
+  font-size: 13px;
+}
+
+.download-link {
+  color: #409EFF;
+  text-decoration: none;
+}
+
+.download-link:hover {
+  text-decoration: underline;
+}
+
+.no-video {
+  padding: 40px 0;
+  text-align: center;
+}
+
+.explanation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  padding: 15px;
+  background-color: #fafafa;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.explanation-column {
+  flex: 1;
+  min-width: 280px;
+}
+
 @media (max-width: 1200px) {
   .chart-group {
     flex-direction: column;
+  }
+  .analysis-video {
+    max-height: 280px;
   }
 }
 </style>

@@ -3,7 +3,6 @@ import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import Cookies from 'js-cookie'
 
-// 智能获取 Token（兼容 RuoYi / vue-element-admin / Pinia）
 const getToken = () => {
   return (
     Cookies.get('Admin-Token') ||
@@ -14,13 +13,13 @@ const getToken = () => {
   )
 }
 
-// ==================== 流式对话（最终稳定版） ====================
 export async function chatWithAgentStream({
   conversation_id,
   message = '',
   image = null,
+  audio = null,
   user_id = 'user_001',
-  model = 'qwen-vl-plus'
+  model = 'qwen3-omni-flash'
 }) {
   const token = getToken()
   if (!token) {
@@ -34,6 +33,7 @@ export async function chatWithAgentStream({
   formData.append('message', message)
   formData.append('model', model)
   if (image) formData.append('image', image)
+  if (audio) formData.append('audio', audio)
 
   const response = await fetch('/dev-api/agent/chat?stream=true', {
     method: 'POST',
@@ -50,7 +50,6 @@ export async function chatWithAgentStream({
   return response
 }
 
-// 其他函数保持不变
 export function chatWithAgent(data) {
   return request({ url: '/agent/chat', method: 'post', data, timeout: 300000 })
 }

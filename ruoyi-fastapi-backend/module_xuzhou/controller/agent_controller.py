@@ -23,7 +23,7 @@ agent_controller = APIRouter(
 )
 
 
-@agent_controller.post("/chat", summary="AI Agent 对话（真实逐 token 流式）")
+@agent_controller.post("/chat", summary="AI Agent 对话（Qwen3-Omni-Flash 全模态流式）")
 @integration_log(
     title="AI Agent 对话",
     system_name="徐州人员管理系统",
@@ -34,7 +34,7 @@ async def agent_chat(
     conversation_id: str = Form(..., description="会话ID"),
     user_id: Optional[str] = Form(None, description="用户ID"),
     message: str = Form("", description="用户输入文字"),
-    model: str = Form("qwen-vl-plus", description="模型名称"),
+    model: str = Form("qwen3-omni-flash", description="模型名称"),
     image: Optional[UploadFile] = File(None, description="图片文件"),
     audio: Optional[UploadFile] = File(None, description="语音文件"),
     query_db: AsyncSession = Depends(get_db),
