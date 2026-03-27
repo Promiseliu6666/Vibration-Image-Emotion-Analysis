@@ -43,6 +43,7 @@ from module_xuzhou.controller.alarm_controller import alarmController
 from module_task.monitor_controller import monitorController
 from module_task.inference_monitor import start_inference_monitor
 from sub_applications.handle import handle_sub_applications
+from module_xuzhou.controller.agent_controller import agent_controller
 from utils.log_util import logger
 from hik_vision.hik_vision import videoController
 
@@ -116,6 +117,7 @@ controller_list = [
     {'router': people_controller, 'tags': ['人员']},
     {'router': group_controller, 'tags': ['人员组']},
     {'router': monitorController, 'tags': ['推理监控']},
+    {'router': agent_controller, 'tags': ['AI Agent']}
 ]
 
 

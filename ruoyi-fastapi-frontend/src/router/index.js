@@ -97,6 +97,19 @@ export const constantRoutes = [
     ]
   },
   {
+    path: '',
+    component: Layout,
+    redirect: 'noredirect',
+    children: [
+      {
+        path: '/agent',
+        component: () => import('@/views/binhua/agent/index'),
+        name: 'agent',
+        meta: { title: 'AI agent分析', icon: 'dashboard', affix: true }
+      }
+    ]
+  },
+  {
     path: '/user',
     component: Layout,
     hidden: true,
