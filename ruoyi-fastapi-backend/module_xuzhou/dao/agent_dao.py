@@ -1,15 +1,13 @@
 # agent_dao.py
-import json
 from datetime import datetime
 from typing import Sequence, Optional
 
-from sqlalchemy import select, update, desc
+from sqlalchemy import select, update, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_xuzhou.entity.do.agent_do import AgentMessage   # ← 你前面创建的 DO 文件
 from module_xuzhou.entity.vo.agent_vo import (
     AgentMessagePageQueryModel,
-    AgentMessageModel,
     SaveAgentMessageModel
 )
 from utils.page_util import PageUtil
@@ -87,6 +85,83 @@ class AgentDao:
         return await PageUtil.paginate(
             db, query, query_object.page_num, query_object.page_size, is_page
         )
+
+    @classmethod
+    async def get_conversation_summaries(
+        cls,
+        db: AsyncSession,
+        user_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Get conversation summaries sorted by latest activity."""
+        summary_query = (
+            select(
+                AgentMessage.conversation_id.label("conversation_id"),
+                func.max(AgentMessage.created_time).label("last_active_time"),
+                func.min(AgentMessage.created_time).label("created_time"),
+                func.count(AgentMessage.id).label("message_count"),
+            )
+            .where(AgentMessage.is_deleted == False)
+        )
+
+        if user_id:
+            summary_query = summary_query.where(AgentMessage.user_id == user_id)
+
+        summary_query = (
+            summary_query.group_by(AgentMessage.conversation_id)
+            .order_by(desc("last_active_time"))
+            .limit(limit)
+        )
+        summary_rows = (await db.execute(summary_query)).all()
+        if not summary_rows:
+            return []
+
+        conversation_ids = [row.conversation_id for row in summary_rows]
+
+        detail_query = (
+            select(
+                AgentMessage.conversation_id,
+                AgentMessage.role,
+                AgentMessage.content,
+                AgentMessage.created_time,
+            )
+            .where(
+                AgentMessage.conversation_id.in_(conversation_ids),
+                AgentMessage.is_deleted == False,
+            )
+            .order_by(desc(AgentMessage.created_time))
+        )
+        if user_id:
+            detail_query = detail_query.where(AgentMessage.user_id == user_id)
+
+        detail_rows = (await db.execute(detail_query)).all()
+
+        last_message_by_conv: dict[str, str] = {}
+        title_hint_by_conv: dict[str, str] = {}
+
+        for row in detail_rows:
+            conv_id = row.conversation_id
+            content = (row.content or "").strip()
+
+            if conv_id not in last_message_by_conv:
+                last_message_by_conv[conv_id] = content
+
+            if row.role == "user" and conv_id not in title_hint_by_conv and content:
+                title_hint_by_conv[conv_id] = content
+
+        result: list[dict] = []
+        for row in summary_rows:
+            result.append(
+                {
+                    "conversation_id": row.conversation_id,
+                    "created_time": row.created_time,
+                    "last_active_time": row.last_active_time,
+                    "message_count": int(row.message_count or 0),
+                    "last_message": last_message_by_conv.get(row.conversation_id, ""),
+                    "title_hint": title_hint_by_conv.get(row.conversation_id, ""),
+                }
+            )
+        return result
 
     @classmethod
     async def save_message_dao(

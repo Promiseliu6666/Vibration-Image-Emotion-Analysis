@@ -12,13 +12,23 @@
           />
         </el-form-item>
 
+        <!-- 人名：已改为下拉选择框 -->
         <el-form-item label="人名">
-          <el-input
+          <el-select
             v-model="queryParams.personName"
-            placeholder="输入人名（支持模糊）"
+            placeholder="请选择人名"
             clearable
+            filterable
             style="width: 180px"
-          />
+            @change="handleQuery"
+          >
+            <el-option
+              v-for="item in personNameOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
         </el-form-item>
 
         <el-form-item label="视频来源">
@@ -55,7 +65,7 @@
       </el-form>
     </el-card>
 
-    <!-- 双图表布局 -->
+    <!-- 第一行图表 -->
     <div class="chart-group">
       <el-card class="chart-card" shadow="hover">
         <template #header>
@@ -73,6 +83,27 @@
           </div>
         </template>
         <div ref="trendChart" class="chart-container" />
+      </el-card>
+    </div>
+
+    <!-- 第二行图表：整体平均雷达图 + 风险柱状图 -->
+    <div class="chart-group">
+      <el-card class="chart-card" shadow="hover">
+        <template #header>
+          <div class="card-header">
+            <span>全体人员心理指标平均值（8维度）</span>
+          </div>
+        </template>
+        <div ref="radarChart" class="chart-container" />
+      </el-card>
+
+      <el-card class="chart-card" shadow="hover">
+        <template #header>
+          <div class="card-header">
+            <span>指标健康度概览</span>
+          </div>
+        </template>
+        <div ref="riskBarChart" class="chart-container" />
       </el-card>
     </div>
 
@@ -97,6 +128,17 @@
             >
               导出Excel
             </el-button>
+
+            <!-- 导出分析报告 按钮 -->
+            <el-button
+              type="primary"
+              icon="el-icon-document"
+              :disabled="!singleSelection"
+              @click="handleExportReport"
+            >
+              导出分析报告
+            </el-button>
+
           </div>
         </div>
       </template>
@@ -205,7 +247,6 @@
       direction="rtl"
     >
       <div class="detail-wrapper">
-        <!-- 基础信息 -->
         <el-descriptions :column="2" border size="small" class="mb-4">
           <template #header>
             <span class="section-title">基础信息</span>
@@ -228,7 +269,14 @@
           <el-descriptions-item label="创建时间">{{ formatDate(detailData.createTime) }}</el-descriptions-item>
         </el-descriptions>
 
-        <!-- 视频区域 -->
+        <!-- 个人雷达图 -->
+        <el-card shadow="hover" class="mb-4">
+          <template #header>
+            <span class="section-title">个人心理状态画像（8维度）</span>
+          </template>
+          <div ref="personRadarChart" class="chart-container" style="height: 360px"></div>
+        </el-card>
+
         <el-card shadow="hover" class="video-card mb-4">
           <template #header>
             <div class="video-header">
@@ -273,7 +321,6 @@
           </div>
         </el-card>
 
-        <!-- E1-E14 指标 -->
         <el-card shadow="hover" class="mb-4">
           <template #header>
             <span class="section-title">E1-E14 心理指标数值</span>
@@ -296,7 +343,6 @@
           </el-descriptions>
         </el-card>
 
-        <!-- 计算方法说明 -->
         <el-card shadow="hover">
           <template #header>
             <span class="section-title">E1-E14 计算方法说明</span>
@@ -344,13 +390,22 @@
           />
         </el-form-item>
 
+        <!-- 导出里的人名也改为下拉 -->
         <el-form-item label="人名">
-          <el-input
+          <el-select
             v-model="queryParamsExport.personName"
-            placeholder="输入人名（支持模糊）"
+            placeholder="请选择人名"
             clearable
+            filterable
             style="width: 180px"
-          />
+          >
+            <el-option
+              v-for="item in personNameOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
         </el-form-item>
 
         <el-form-item label="视频来源">
@@ -423,10 +478,10 @@ import {
   delAnalysis,
   batchDelAnalysis,
   getVideoBlobUrl,
-  downloadVideo
+  downloadVideo,
+  exportPersonReport
 } from '@/api/binhua/analysis'
 
-// ==================== 数据定义 ====================
 const queryParams = ref({
   personId: null,
   personName: '',
@@ -441,8 +496,10 @@ const analysisList = ref([])
 const total = ref(0)
 const loading = ref(false)
 const exportLoading = ref(false)
-
 const multipleSelection = ref([])
+const personNameOptions = ref([])
+const singleSelection = ref(false)
+const currentReportRow = ref(null)
 
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增分析记录')
@@ -468,25 +525,31 @@ const rules = {
 
 const drawerVisible = ref(false)
 const detailData = ref({})
-
-// ==================== 视频相关 ====================
 const videoBlobUrl = ref('')
+
+const happinessChart = ref(null)
+const trendChart = ref(null)
+const radarChart = ref(null)
+const personRadarChart = ref(null)
+const riskBarChart = ref(null)
+
+let pieChartInstance = null
+let lineChartInstance = null
+let radarChartInstance = null
+let personRadarInstance = null
+let riskBarInstance = null
 
 const hasVideo = computed(() => {
   const has = !!(detailData.value?.id && (detailData.value.videoUrl || detailData.value.videoPath || detailData.value.video_path))
-  console.log(`[视频日志] hasVideo 判断结果: ${has}，ID=${detailData.value?.id}`)
   return has
 })
 
 const loadVideo = async () => {
   videoBlobUrl.value = ''
   if (!detailData.value?.id) return
-
   try {
-    console.log(`[视频日志] 开始加载视频 ID=${detailData.value.id}`)
     const blobUrl = await getVideoBlobUrl(detailData.value.id)
     videoBlobUrl.value = blobUrl
-    console.log(`[视频日志] Blob URL 创建成功: ${blobUrl}`)
   } catch (err) {
     console.error('[视频加载失败]', err)
     videoBlobUrl.value = ''
@@ -499,21 +562,15 @@ const downloadCurrentVideo = () => {
   downloadVideo(detailData.value.id, `分析视频_${detailData.value.id}.mp4`)
 }
 
-const onVideoLoadStart = () => console.log(`[视频日志] loadstart → 开始请求视频`)
-const onVideoLoaded = () => console.log(`[视频日志] loadedmetadata → 元数据加载完成`)
+const onVideoLoadStart = () => {}
+const onVideoLoaded = () => {}
 
 const handleVideoError = (e) => {
   const video = e.target
-  console.error('=== 【视频加载失败】详细诊断信息 ===')
-  console.error('当前 src:', videoBlobUrl.value)
-  if (video?.error) {
-    console.error('MediaError.code:', video.error.code)
-    console.error('MediaError.message:', video.error.message)
-  }
+  console.error('视频加载失败', video.error)
   ElMessage.error(`视频加载失败（错误码: ${video?.error?.code || '未知'}）`)
 }
 
-// ==================== 工具函数 ====================
 const getLevelTagType = (level) => {
   const typeMap = {
     '高': 'success',
@@ -538,6 +595,195 @@ const formatDate = (date) => {
     })
   } catch {
     return '-'
+  }
+}
+
+const getPersonNameOptions = () => {
+  const names = [...new Set(
+    analysisList.value
+      .map(item => item.personName)
+      .filter(name => name && name.trim())
+  )]
+  personNameOptions.value = names.map(name => ({
+    label: name,
+    value: name
+  }))
+}
+
+const getAvgRadarOption = () => {
+  const list = analysisList.value
+  if (!list.length) {
+    return {
+      title: { text: '暂无数据', left: 'center', top: 'center' },
+      radar: { indicator: [] },
+      series: []
+    }
+  }
+
+  let sumE12 = 0, sumE2 = 0, sumE3 = 0, sumE14 = 0
+  let sumE1 = 0, sumE13 = 0, sumE8 = 0, sumE11 = 0
+  let count = 0
+
+  list.forEach(item => {
+    sumE12 += Number(item.e12) || 0
+    sumE2 += Number(item.e2) || 0
+    sumE3 += Number(item.e3) || 0
+    sumE14 += Number(item.e14) || 0
+    sumE1 += Number(item.e1) || 0
+    sumE13 += Number(item.e13) || 0
+    sumE8 += Number(item.e8) || 0
+    sumE11 += Number(item.e11) || 0
+    count++
+  })
+
+  const data = [
+    Math.round(sumE12 / count),
+    Math.round(sumE2 / count),
+    Math.round(sumE3 / count),
+    Math.round(sumE14 / count),
+    Math.round(sumE1 / count),
+    Math.round(sumE13 / count),
+    Math.round(sumE8 / count),
+    Math.round(sumE11 / count)
+  ]
+
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}分' },
+    radar: {
+      radius: '58%',
+      axisName: { fontSize: 14, color: '#333' },
+      indicator: [
+        { name: '幸福度', max: 100 },
+        { name: '压力值', max: 100 },
+        { name: '焦虑值', max: 100 },
+        { name: '稳定性', max: 100 },
+        { name: '攻击性', max: 100 },
+        { name: '外向性', max: 100 },
+        { name: '自我调节', max: 100 },
+        { name: '抑郁倾向', max: 100 }
+      ],
+      splitArea: {
+        areaStyle: {
+          color: ['rgba(103,194,58,0.1)','rgba(230,162,60,0.1)','rgba(245,108,108,0.1)']
+        }
+      }
+    },
+    series: [{
+      type: 'radar',
+      data: [{
+        value: data,
+        name: '全体平均值',
+        areaStyle: { color: 'rgba(64, 158, 255, 0.2)' },
+        lineStyle: { color: '#409EFF', width: 2 },
+        itemStyle: { color: '#409EFF' }
+      }],
+      label: { show: false }
+    }]
+  }
+}
+
+const getPersonRadarOption = (row) => {
+  const data = [
+    Math.round(Number(row.e12) || 0),
+    Math.round(Number(row.e2) || 0),
+    Math.round(Number(row.e3) || 0),
+    Math.round(Number(row.e14) || 0),
+    Math.round(Number(row.e1) || 0),
+    Math.round(Number(row.e13) || 0),
+    Math.round(Number(row.e8) || 0),
+    Math.round(Number(row.e11) || 0)
+  ]
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}分' },
+    radar: {
+      radius: '58%',
+      axisName: { fontSize: 14, color: '#333' },
+      indicator: [
+        { name: '幸福度', max: 100 },
+        { name: '压力值', max: 100 },
+        { name: '焦虑值', max: 100 },
+        { name: '稳定性', max: 100 },
+        { name: '攻击性', max: 100 },
+        { name: '外向性', max: 100 },
+        { name: '自我调节', max: 100 },
+        { name: '抑郁倾向', max: 100 }
+      ],
+      splitArea: {
+        areaStyle: {
+          color: ['rgba(103,194,58,0.1)','rgba(230,162,60,0.1)','rgba(245,108,108,0.1)']
+        }
+      }
+    },
+    series: [{
+      type: 'radar',
+      data: [{
+        value: data,
+        name: row.personName || '当前人员',
+        areaStyle: { color: 'rgba(255, 103, 80, 0.2)' },
+        lineStyle: { color: '#F56C6C', width: 2 },
+        itemStyle: { color: '#F56C6C' }
+      }],
+      label: { show: false }
+    }]
+  }
+}
+
+const getRiskBarOption = () => {
+  const list = analysisList.value;
+
+  const personMap = {};
+  list.forEach(item => {
+    const pid = item.personId;
+    if (!pid) return;
+    if (!personMap[pid]) {
+      personMap[pid] = {
+        name: item.personName,
+        total: 0,
+        count: 0
+      };
+    }
+    const val = Number(item.happinessIndex) || 0;
+    personMap[pid].total += val;
+    personMap[pid].count += 1;
+  });
+
+  const personList = Object.values(personMap).map(p => ({
+    name: p.name,
+    avg: Math.round(p.total / p.count)
+  }));
+
+  const levelCount = { 高: 0, 中: 0, 低: 0, 未知: 0 };
+  personList.forEach(p => {
+    const avg = p.avg;
+    if (avg >= 80) levelCount.高++;
+    else if (avg >= 60) levelCount.中++;
+    else if (avg > 0) levelCount.低++;
+    else levelCount.未知++;
+  });
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: '{b}等级：{c} 人'
+    },
+    grid: { left: '10%', right: '5%', bottom: '10%', top: '10%' },
+    xAxis: {
+      type: 'category',
+      data: ['高', '中', '低'],
+      axisLabel: { fontSize: 13 }
+    },
+    yAxis: { type: 'value', name: '人数' },
+    series: [{
+      type: 'bar',
+      data: [
+        { value: levelCount.高, itemStyle: { color: '#67C23A' } },
+        { value: levelCount.中, itemStyle: { color: '#E6A23C' } },
+        { value: levelCount.低, itemStyle: { color: '#F56C6C' } }
+      ],
+      barWidth: '40%',
+      label: { show: true, position: 'top', formatter: '{c}' }
+    }]
   }
 }
 
@@ -598,7 +844,6 @@ const getPieChartOption = () => {
   }
 }
 
-// ==================== 【修改重点】美化版幸福指数趋势图 ====================
 const getLineChartOption = () => {
   const trendData = getTrendData()
   const hasData = trendData.xAxis.length > 0
@@ -613,9 +858,9 @@ const getLineChartOption = () => {
     itemStyle: {
       color: function(params) {
         const value = params.value
-        if (value < 30) return '#F56C6C'    // 低
-        if (value < 70) return '#FFD050'    // 中
-        return '#67C23A'                    // 高
+        if (value < 60) return '#F56C6C'
+        if (value < 80) return '#E6A23C'
+        return '#67C23A'
       },
       borderWidth: 2,
       borderColor: '#fff'
@@ -623,41 +868,37 @@ const getLineChartOption = () => {
     z: 10
   }
 
-  // 背景分段区域
   const backgroundSeries = [
-    // 低等级：0~30 浅红
     {
-      type: 'line',
-      data: [],
-      markArea: {
-        silent: true,
-        itemStyle: { color: 'rgba(245, 102, 102, 0.15)' },
-        data: [[ { xAxis: 0, yAxis: 0 }, { xAxis: 'max', yAxis: 30 } ]]
+        type: 'line',
+        data: [],
+        markArea: {
+          silent: true,
+          itemStyle: { color: 'rgba(245, 102, 102, 0.15)' },
+          data: [[{ xAxis: 0, yAxis: 0 }, { xAxis: 'max', yAxis: 60 }]]
+        },
+        lineStyle: { opacity: 0 }
       },
-      lineStyle: { opacity: 0 }
-    },
-    // 中等级：30~70 浅黄
     {
-      type: 'line',
-      data: [],
-      markArea: {
-        silent: true,
-        itemStyle: { color: 'rgba(255, 208, 80, 0.25)' },
-        data: [[ { xAxis: 0, yAxis: 30 }, { xAxis: 'max', yAxis: 70 } ]]
+        type: 'line',
+        data: [],
+        markArea: {
+          silent: true,
+          itemStyle: { color: 'rgba(255, 208, 80, 0.25)' },
+          data: [[{ xAxis: 0, yAxis: 60 }, { xAxis: 'max', yAxis: 80 }]]
+        },
+        lineStyle: { opacity: 0 }
       },
-      lineStyle: { opacity: 0 }
-    },
-    // 高等级：70~100 浅绿
     {
-      type: 'line',
-      data: [],
-      markArea: {
-        silent: true,
-        itemStyle: { color: 'rgba(103, 194, 58, 0.15)' },
-        data: [[ { xAxis: 0, yAxis: 70 }, { xAxis: 'max', yAxis: 100 } ]]
-      },
-      lineStyle: { opacity: 0 }
-    }
+        type: 'line',
+        data: [],
+        markArea: {
+          silent: true,
+          itemStyle: { color: 'rgba(103, 194, 58, 0.15)' },
+          data: [[{ xAxis: 0, yAxis: 80 }, { xAxis: 'max', yAxis: 100 }]]
+        },
+        lineStyle: { opacity: 0 }
+      }
   ]
 
   return {
@@ -665,7 +906,7 @@ const getLineChartOption = () => {
       trigger: 'axis',
       formatter: function(params) {
         const val = params[0].value
-        let level = val < 30 ? '低' : val < 70 ? '中' : '高'
+        let level = val < 60 ? '低' : val < 80 ? '中' : '高'
         return `${params[0].name}<br/>幸福指数：${val.toFixed(1)}分<br/>等级：${level}`
       },
       axisPointer: { type: 'shadow' }
@@ -689,12 +930,6 @@ const getLineChartOption = () => {
   }
 }
 
-// ==================== 图表初始化 ====================
-const happinessChart = ref(null)
-const trendChart = ref(null)
-let pieChartInstance = null
-let lineChartInstance = null
-
 const initCharts = async () => {
   await nextTick()
   try {
@@ -708,14 +943,27 @@ const initCharts = async () => {
       lineChartInstance = echarts.init(trendChart.value, 'macarons')
       lineChartInstance.setOption(getLineChartOption())
     }
+    if (radarChart.value) {
+      if (radarChartInstance) radarChartInstance.dispose()
+      radarChartInstance = echarts.init(radarChart.value, 'macarons')
+      radarChartInstance.setOption(getAvgRadarOption())
+    }
+    if (riskBarChart.value) {
+      if (riskBarInstance) riskBarInstance.dispose()
+      riskBarInstance = echarts.init(riskBarChart.value, 'macarons')
+      riskBarInstance.setOption(getRiskBarOption())
+    }
   } catch (err) {
-    console.error('ECharts 初始化失败:', err)
+    console.error('图表初始化失败:', err)
   }
 }
 
 const resizeHandler = () => {
   pieChartInstance?.resize()
   lineChartInstance?.resize()
+  radarChartInstance?.resize()
+  personRadarInstance?.resize()
+  riskBarInstance?.resize()
 }
 
 watch(analysisList, async () => {
@@ -723,15 +971,17 @@ watch(analysisList, async () => {
   try {
     if (pieChartInstance) pieChartInstance.setOption(getPieChartOption(), true)
     if (lineChartInstance) lineChartInstance.setOption(getLineChartOption(), true)
+    if (radarChartInstance) radarChartInstance.setOption(getAvgRadarOption(), true)
+    if (riskBarInstance) riskBarInstance.setOption(getRiskBarOption(), true)
   } catch (err) {
-    console.error('ECharts setOption 失败:', err)
+    console.error('图表更新失败:', err)
   }
 }, { deep: true })
 
-// ==================== 生命周期 ====================
 onMounted(() => {
   initCharts()
   window.addEventListener('resize', resizeHandler)
+  loadAllPersonNames()
   getList()
 })
 
@@ -739,9 +989,24 @@ onUnmounted(() => {
   window.removeEventListener('resize', resizeHandler)
   pieChartInstance?.dispose()
   lineChartInstance?.dispose()
+  radarChartInstance?.dispose()
+  personRadarInstance?.dispose()
+  riskBarInstance?.dispose()
 })
 
-// ==================== 数据请求方法 ====================
+const handleView = async (row) => {
+  detailData.value = { ...row }
+  drawerVisible.value = true
+  if (row.id) await loadVideo()
+
+  await nextTick()
+  if (personRadarChart.value) {
+    if (personRadarInstance) personRadarInstance.dispose()
+    personRadarInstance = echarts.init(personRadarChart.value, 'macarons')
+    personRadarInstance.setOption(getPersonRadarOption(row))
+  }
+}
+
 const getList = async () => {
   loading.value = true
   try {
@@ -749,7 +1014,6 @@ const getList = async () => {
       pageNum: queryParams.value.pageNum,
       pageSize: queryParams.value.pageSize
     }
-
     if (queryParams.value.personId != null) params.personId = queryParams.value.personId
     if (queryParams.value.personName?.trim()) params.personName = queryParams.value.personName.trim()
     if (queryParams.value.source?.trim()) params.source = queryParams.value.source.trim()
@@ -764,6 +1028,7 @@ const getList = async () => {
     ElMessage.error(err.message || '获取列表失败')
   } finally {
     loading.value = false
+    getPersonNameOptions()
   }
 }
 
@@ -787,6 +1052,13 @@ const resetQuery = () => {
 
 const handleSelectionChange = (val) => {
   multipleSelection.value = val
+  if (val.length === 1) {
+    singleSelection.value = true
+    currentReportRow.value = val[0]
+  } else {
+    singleSelection.value = false
+    currentReportRow.value = null
+  }
 }
 
 const handleAdd = () => {
@@ -813,16 +1085,6 @@ const handleEdit = async (row) => {
     dialogVisible.value = true
   } catch {
     ElMessage.error('获取详情失败')
-  }
-}
-
-const handleView = async (row) => {
-  console.log('[视频日志] handleView 被调用，当前记录 ID=', row.id)
-  detailData.value = { ...row }
-  drawerVisible.value = true
-
-  if (row.id) {
-    await loadVideo()
   }
 }
 
@@ -867,7 +1129,6 @@ const submitForm = async () => {
   }
 }
 
-// ==================== 导出相关 ====================
 const exportDialogVisible = ref(false)
 const exportFileName = ref('')
 const queryParamsExport = ref({
@@ -905,7 +1166,6 @@ const confirmExport = () => {
     pageNum: 1,
     pageSize: 999999,
   }
-
   if (queryParamsExport.value.personId != null) params.personId = queryParamsExport.value.personId
   if (queryParamsExport.value.personName?.trim()) params.personName = queryParamsExport.value.personName.trim()
   if (queryParamsExport.value.source?.trim()) params.source = queryParamsExport.value.source.trim()
@@ -924,33 +1184,90 @@ const confirmExport = () => {
       exportLoading.value = false
     })
 }
+
+// ==================== 导出分析报告 PDF ====================
+const handleExportReport = async () => {
+  if (!currentReportRow.value) {
+    ElMessage.warning('请选择一条记录')
+    return
+  }
+
+  const row = currentReportRow.value
+  exportLoading.value = true
+
+  try {
+    let tempChart = echarts.init(document.createElement('div'))
+    tempChart.setOption(getPersonRadarOption(row))
+    
+    const radarBase64 = tempChart.getDataURL({
+      type: 'png',
+      pixelRatio: 2,
+      backgroundColor: '#fff'
+    })
+    tempChart.dispose()
+
+    const res = await exportPersonReport({
+      analysisId: row.id,
+      radarImage: radarBase64
+    })
+
+    const blob = new Blob([res], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${row.personName || '人员'}_心理分析报告.pdf`
+    a.click()
+    URL.revokeObjectURL(url)
+
+    ElMessage.success('PDF 报告导出成功')
+  } catch (err) {
+    console.error(err)
+    ElMessage.error('报告导出失败，请检查后端接口')
+  } finally {
+    exportLoading.value = false
+  }
+}
+
+// ====================== 加载所有人名到下拉框 ======================
+const loadAllPersonNames = async () => {
+  try {
+    const params = { pageNum: 1, pageSize: 5000 }
+    const res = await listAnalysis(params)
+    const data = res.data || {}
+    const fullList = data.records || data.rows || data.list || []
+    
+    const extractedNames = fullList
+      .map(item => (item.personName || '').trim())
+      .filter(name => name.length > 0)
+    
+    const uniqueNames = [...new Set(extractedNames)].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    personNameOptions.value = uniqueNames.map(name => ({ label: name, value: name }))
+  } catch (err) {
+    console.error('加载人名失败', err)
+  }
+}
 </script>
 
 <style scoped>
 .analysis-container {
   padding: 20px;
 }
-
 .search-card {
   margin-bottom: 20px;
 }
-
 .chart-group {
   display: flex;
   gap: 20px;
   margin-bottom: 20px;
 }
-
 .chart-card {
   flex: 1;
   border-radius: 8px;
   overflow: hidden;
 }
-
 .table-card {
   margin-bottom: 20px;
 }
-
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -958,42 +1275,34 @@ const confirmExport = () => {
   font-size: 16px;
   font-weight: 600;
 }
-
 .card-header > div {
   display: flex;
   gap: 8px;
 }
-
 .pagination-center {
   margin: 20px 0;
   text-align: center;
 }
-
 .chart-container {
   width: 100%;
   height: 340px;
 }
-
 .section-title {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
 }
-
 .video-card {
   margin-bottom: 20px;
 }
-
 .video-header {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-
 .video-player-wrapper {
   position: relative;
 }
-
 .analysis-video {
   width: 100%;
   max-height: 320px;
@@ -1001,28 +1310,23 @@ const confirmExport = () => {
   background-color: #000;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
-
 .video-footer {
   margin-top: 10px;
   text-align: center;
   color: #666;
   font-size: 13px;
 }
-
 .download-link {
   color: #409EFF;
   text-decoration: none;
 }
-
 .download-link:hover {
   text-decoration: underline;
 }
-
 .no-video {
   padding: 40px 0;
   text-align: center;
 }
-
 .explanation {
   display: flex;
   flex-wrap: wrap;
@@ -1033,12 +1337,14 @@ const confirmExport = () => {
   font-size: 14px;
   line-height: 1.7;
 }
-
 .explanation-column {
   flex: 1;
   min-width: 280px;
 }
-
+.empty-placeholder {
+  width: 100%;
+  height: 340px;
+}
 @media (max-width: 1200px) {
   .chart-group {
     flex-direction: column;

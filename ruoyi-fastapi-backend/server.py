@@ -25,6 +25,7 @@ from module_admin.controller.job_controller import jobController
 from module_admin.controller.log_controller import logController
 from module_admin.controller.login_controller import loginController
 from module_admin.controller.menu_controller import menuController
+from module_admin.controller.manager_compat_controller import managerCompatController
 from module_admin.controller.notice_controller import noticeController
 from module_admin.controller.online_controller import onlineController
 from module_admin.controller.post_controler import postController
@@ -139,3 +140,5 @@ async def swagger_ui_redirect():
 
 for controller in controller_list:
     app.include_router(router=controller.get('router'), tags=controller.get('tags'))
+
+app.include_router(router=managerCompatController, tags=['Manager API Compatibility'])

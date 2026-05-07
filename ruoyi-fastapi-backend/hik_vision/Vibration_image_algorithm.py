@@ -10,7 +10,7 @@ import numpy as np
 import os
 
 from scipy import ndimage, signal
-import scipy.stats as stats  # Added for Pearson correlation and normal distribution fitting
+import scipy.stats as stats
 
 class VibraimageCore:
     """固定输入图像分辨率为640x480"""

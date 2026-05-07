@@ -88,7 +88,23 @@ export function exportAnalysis(query) {
     responseType: 'blob'
   })
 }
-
+// 获取所有人名列表（用于下拉框）
+export function getPersonNames() {
+  return request({
+    url: '/analysis/person-names',
+    method: 'get'
+  })
+}
+// 导出个人心理分析报告 PDF（已修复超时：60秒超时）
+export function exportPersonReport(data) {
+  return request({
+    url: '/analysis/export-person-report',
+    method: 'post',
+    responseType: 'blob',
+    timeout: 60000,  // 👈 这里加了 60 秒超时
+    data
+  })
+}
 // ====================== 视频播放相关（支持 Token 校验） ======================
 
 /**
