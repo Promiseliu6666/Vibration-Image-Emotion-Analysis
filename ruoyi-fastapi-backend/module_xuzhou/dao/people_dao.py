@@ -69,3 +69,17 @@ class PeopleDao:
         获取所有未删除人员的特征数据
         """
         return (await db.execute(select(PeopleFace).where(PeopleFace.is_deleted == False))).scalars().all()
+
+    @classmethod
+    async def get_people_features_by_group(cls, db: AsyncSession, group_id: int) -> Sequence[PeopleFace]:
+        """
+        按分组获取未删除人员特征数据。
+        """
+        return (
+            await db.execute(
+                select(PeopleFace).where(
+                    PeopleFace.group_id == group_id,
+                    PeopleFace.is_deleted == False,
+                )
+            )
+        ).scalars().all()

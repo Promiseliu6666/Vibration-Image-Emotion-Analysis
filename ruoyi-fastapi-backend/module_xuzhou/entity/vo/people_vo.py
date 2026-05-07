@@ -12,7 +12,7 @@ class PeopleModel(BaseModel):
     人脸模型表对应pydantic模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True)
+    model_config = ConfigDict(alias_generator=to_camel, from_attributes=True, populate_by_name=True)
 
     id: Optional[int] = Field(default=None, description='人员ID')
     name: Optional[str] = Field(default=None, description='人员编号')
@@ -53,7 +53,7 @@ class DeletePeopleModel(BaseModel):
     删除人脸模型
     """
 
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     people_ids: str = Field(description='需要删除的人员ID')
 
@@ -64,7 +64,7 @@ class FaceCompareModel(BaseModel):
     """
 
     group_id: int = Field(description='要查询的分组id')
-    model_config = ConfigDict(alias_generator=to_camel)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     image: str = Field(description='base64编码的图片数据')
     threshold: Optional[float] = Field(default=0.3, description='相似度阈值，默认0.3', ge=0.0, le=1.0)

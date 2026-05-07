@@ -77,6 +77,11 @@ ANALYSIS_INTERVAL = 4
 STABLE_FRAMES_REQUIRED = 15
 TOLERANCE = 60
 LOST_CHECK_INTERVAL = 20
+RECOGNIZE_TIMEOUT = 3.0
+RECOGNIZE_MIN_GAP_SECONDS = 2.5
+
+# Limit concurrent face compare tasks to avoid blocking the whole event loop / worker.
+face_compare_semaphore = asyncio.Semaphore(1)
 
 
 def get_camera_cap(source: str):
@@ -150,7 +155,9 @@ stable_state = {
         "analysis_completed": False,
         "person_id": "",
         "current_video_path": None,
-        "video_frame_count": 0
+        "video_frame_count": 0,
+        "recognizing": False,
+        "last_recognize_at": 0.0
     },
     "rtsp": {
         "stable_count": 0, "prev_center": None, "prev_size": None,
@@ -164,7 +171,9 @@ stable_state = {
         "analysis_completed": False,
         "person_id": "",
         "current_video_path": None,
-        "video_frame_count": 0
+        "video_frame_count": 0,
+        "recognizing": False,
+        "last_recognize_at": 0.0
     }
 }
 
@@ -230,7 +239,9 @@ def reset_analysis_state(source: str):
             "analysis_completed": False,
             "person_id": "",
             "current_video_path": None,
-            "video_frame_count": 0
+            "video_frame_count": 0,
+            "recognizing": False,
+            "last_recognize_at": 0.0
         })
 
         if video_writers.get(source) is not None:
@@ -297,14 +308,43 @@ def detect_face(frame: np.ndarray):
         return None
 
 
+def encode_face_image(frame: np.ndarray, face_rect: tuple) -> str:
+    """
+    Crop and downscale face area before base64 encoding.
+    """
+    if face_rect is not None:
+        x, y, w, h = face_rect
+        pad_w = int(w * 0.25)
+        pad_h = int(h * 0.25)
+        x1 = max(0, x - pad_w)
+        y1 = max(0, y - pad_h)
+        x2 = min(frame.shape[1], x + w + pad_w)
+        y2 = min(frame.shape[0], y + h + pad_h)
+        cropped = frame[y1:y2, x1:x2]
+        if cropped.size > 0:
+            frame = cropped
+
+    h, w = frame.shape[:2]
+    max_side = max(h, w)
+    if max_side > 320:
+        scale = 320.0 / max_side
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+
+    _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
+    return base64.b64encode(buffer).decode('utf-8')
+
+
 async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, state: dict):
     try:
-        _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-        current_image_base64 = base64.b64encode(buffer).decode('utf-8')
+        current_image_base64 = await asyncio.to_thread(encode_face_image, frame, face_rect)
 
-        compare_results = await PeopleService.face_compare_services(
-            db, current_image_base64, group_id=1, threshold=SIMILARITY_THRESHOLD
-        )
+        async with face_compare_semaphore:
+            compare_results = await asyncio.wait_for(
+                PeopleService.face_compare_services(
+                    db, current_image_base64, group_id=1, threshold=SIMILARITY_THRESHOLD
+                ),
+                timeout=RECOGNIZE_TIMEOUT
+            )
 
         if compare_results and compare_results[0]:
             best_match = compare_results[0]
@@ -371,6 +411,7 @@ async def generate_video_stream(
     async def generate():
         frame_count = 0
         last_frame_time = time.time()
+        recognize_task = None
 
         try:
             while active_clients[source] > 0:
@@ -419,7 +460,43 @@ async def generate_video_stream(
                         face_rect = None
 
                 # 人脸识别
-                if (face_rect is not None and not state["identified"] and frame_count % RECOGNIZE_INTERVAL == 0):
+                if recognize_task is not None and recognize_task.done():
+                    try:
+                        recognize_task.result()
+                    except Exception as rec_task_err:
+                        print(f"[{source}] recognize task error: {rec_task_err}")
+                    recognize_task = None
+
+                can_recognize = (
+                    face_rect is not None
+                    and not state["identified"]
+                    and not state["analyzing"]
+                    and not state.get("recognizing", False)
+                    and frame_count % RECOGNIZE_INTERVAL == 0
+                    and (time.time() - float(state.get("last_recognize_at", 0.0))) >= RECOGNIZE_MIN_GAP_SECONDS
+                )
+                if can_recognize:
+                    state["recognizing"] = True
+                    state["last_recognize_at"] = time.time()
+                    frame_snapshot = frame.copy()
+                    face_rect_snapshot = tuple(face_rect)
+
+                    async def _run_recognize(frame_data, rect_data):
+                        try:
+                            name, _similarity = await recognize_face(query_db, frame_data, rect_data, state)
+                            if name and name != "Unknown":
+                                state["locked_rect"] = rect_data
+                                state["analyzing"] = True
+                                state["analysis_start_time"] = time.time()
+                                analyzer.reset()
+                        except Exception as rec_err:
+                            print(f"[{source}] recognize failed: {rec_err}")
+                        finally:
+                            state["recognizing"] = False
+
+                    recognize_task = asyncio.create_task(_run_recognize(frame_snapshot, face_rect_snapshot))
+
+                if False and (face_rect is not None and not state["identified"] and frame_count % RECOGNIZE_INTERVAL == 0):
                     name, similarity = await recognize_face(query_db, frame, face_rect, state)
                     if name and name != "Unknown":
                         print(f"[{source}] 识别到具体人员: {name}，开始锁定分析")
@@ -485,7 +562,9 @@ async def generate_video_stream(
                                             '-crf', '25',
                                             '-y', mp4_path
                                         ]
-                                        subprocess.run(cmd, check=True, capture_output=True, timeout=15)
+                                        await asyncio.to_thread(
+                                            subprocess.run, cmd, check=True, capture_output=True, timeout=15
+                                        )
 
                                         # 转码成功后删除 .avi 文件，只保留 .mp4
                                         if os.path.exists(mp4_path) and os.path.getsize(mp4_path) > 8000:
@@ -581,6 +660,13 @@ async def generate_video_stream(
             print(f"[{source}] 流异常: {e}")
             traceback.print_exc()
         finally:
+            if recognize_task is not None and not recognize_task.done():
+                recognize_task.cancel()
+                try:
+                    await recognize_task
+                except Exception:
+                    pass
+
             active_clients[source] -= 1
             print(f"[{source}] 客户端断开连接，当前客户端数: {active_clients[source]}")
 
@@ -601,6 +687,7 @@ async def get_analysis_results(source: str = Query(None)):
         return {
             "analyzing": state["analyzing"],
             "completed": state["analysis_completed"],
+            "recognizing": state.get("recognizing", False),
             "source": source,
             "results": {k: float(v) for k, v in latest_results[source].items()},
             "matched_person": state["matched_person"] or "Unknown",
@@ -612,6 +699,7 @@ async def get_analysis_results(source: str = Query(None)):
     return {
         "analyzing": False,
         "completed": False,
+        "recognizing": False,
         "message": "无任何摄像头正在分析",
         "results": {f"e{i}": 0.0 for i in range(1, 15)},
         "matched_person": "未识别",

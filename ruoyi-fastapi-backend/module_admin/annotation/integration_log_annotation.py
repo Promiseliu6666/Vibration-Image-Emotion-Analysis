@@ -50,6 +50,55 @@ class IntegrationLog:
         self.is_save_request_data = is_save_request_data
         self.is_save_response_data = is_save_response_data
         self.exclude_param_names = exclude_param_names or []
+        self.max_request_param_length = 8000
+        self.max_response_data_length = 8000
+        self.max_error_msg_length = 2000
+
+    @staticmethod
+    def _truncate_text(value: Any, max_len: int) -> str:
+        text = '' if value is None else str(value)
+        if len(text) <= max_len:
+            return text
+        return f'{text[:max_len]}...[truncated {len(text) - max_len} chars]'
+
+    def _sanitize_for_log(self, value: Any):
+        if hasattr(value, 'model_dump') and callable(getattr(value, 'model_dump')):
+            try:
+                return self._sanitize_for_log(value.model_dump())
+            except Exception:
+                return self._truncate_text(str(value), 1024)
+        if hasattr(value, 'dict') and callable(getattr(value, 'dict')):
+            try:
+                return self._sanitize_for_log(value.dict())
+            except Exception:
+                return self._truncate_text(str(value), 1024)
+        if isinstance(value, dict):
+            sanitized = {}
+            for k, v in value.items():
+                key_lower = str(k).lower()
+                if key_lower in {'pics', 'pic', 'image', 'img', 'photo', 'file', 'files', 'avatar'}:
+                    if isinstance(v, str) and (v.startswith('data:image/') or len(v) > 1024):
+                        sanitized[k] = f'[omitted large field len={len(v)}]'
+                    else:
+                        sanitized[k] = self._sanitize_for_log(v)
+                else:
+                    sanitized[k] = self._sanitize_for_log(v)
+            return sanitized
+        if isinstance(value, list):
+            return [self._sanitize_for_log(item) for item in value]
+        if isinstance(value, str):
+            if value.startswith('data:image/'):
+                return f'[omitted base64 image len={len(value)}]'
+            if 'data:image/' in value:
+                return '[omitted embedded base64 image]'
+            if len(value) > 4096:
+                return self._truncate_text(value, 4096)
+            return value
+        # Last fallback for custom objects.
+        fallback = str(value)
+        if len(fallback) > 1024:
+            return self._truncate_text(fallback, 1024)
+        return fallback
 
     def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
@@ -126,7 +175,9 @@ class IntegrationLog:
                         for k, v in kwargs.items()
                         if k not in self.exclude_param_names and not isinstance(v, (Request, AsyncSession))
                     }
-                    log_data['requestParams'] = json.dumps(filtered_kwargs, ensure_ascii=False, default=str)
+                    sanitized_kwargs = self._sanitize_for_log(filtered_kwargs)
+                    request_params_text = json.dumps(sanitized_kwargs, ensure_ascii=False, default=str)
+                    log_data['requestParams'] = self._truncate_text(request_params_text, self.max_request_param_length)
                 except Exception:
                     log_data['requestParams'] = '参数序列化失败'
 
@@ -184,7 +235,10 @@ class IntegrationLog:
                                     break  # 找到一个就够了
 
                         # 存入日志的只有这个小的 summary JSON
-                        log_data['responseData'] = json.dumps(summary, ensure_ascii=False, default=str)
+                        response_data_text = json.dumps(summary, ensure_ascii=False, default=str)
+                        log_data['responseData'] = self._truncate_text(
+                            response_data_text, self.max_response_data_length
+                        )
 
                     except Exception as e:
                         log_data['responseData'] = json.dumps({
@@ -194,7 +248,7 @@ class IntegrationLog:
 
             except Exception as e:
                 log_data['status'] = 1
-                log_data['errorMsg'] = str(e)[:2000]
+                log_data['errorMsg'] = self._truncate_text(str(e), self.max_error_msg_length)
                 logger.error(f'系统对接日志记录异常: {e}')
                 raise e
             finally:
@@ -221,6 +275,15 @@ class IntegrationLog:
         try:
             # 创建新的数据库会话
             async with AsyncSessionLocal() as db_session:
+                log_data['requestParams'] = self._truncate_text(
+                    log_data.get('requestParams', ''), self.max_request_param_length
+                )
+                log_data['responseData'] = self._truncate_text(
+                    log_data.get('responseData', ''), self.max_response_data_length
+                )
+                log_data['errorMsg'] = self._truncate_text(
+                    log_data.get('errorMsg', ''), self.max_error_msg_length
+                )
                 # 调试日志：打印实际的log_data内容
                 # logger.info(f"准备保存系统对接日志数据: {log_data}")
 

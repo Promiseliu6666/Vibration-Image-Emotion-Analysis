@@ -64,7 +64,7 @@ export const constantRoutes = [
     children: [
       {
         path: '/index',
-        component: () => import('@/views/dashboard/index'),
+        component: () => import('@/views/binhua/analysis/index'),
         name: 'Index',
         meta: { title: '首页', icon: 'dashboard', affix: true }
       }
@@ -87,6 +87,7 @@ export const constantRoutes = [
     path: '',
     component: Layout,
     redirect: 'noredirect',
+    hidden: true,
     children: [
       {
         path: '/analysis',
