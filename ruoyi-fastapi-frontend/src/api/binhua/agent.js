@@ -1,17 +1,15 @@
-// src/api/binhua/agent.js
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import Cookies from 'js-cookie'
 
-const getToken = () => {
-  return (
-    Cookies.get('Admin-Token') ||
-    localStorage.getItem('Admin-Token') ||
-    localStorage.getItem('token') ||
-    localStorage.getItem('access_token') ||
-    ''
-  )
-}
+const API_BASE = import.meta.env.VITE_APP_BASE_API || ''
+
+const getToken = () =>
+  Cookies.get('Admin-Token') ||
+  localStorage.getItem('Admin-Token') ||
+  localStorage.getItem('token') ||
+  localStorage.getItem('access_token') ||
+  ''
 
 export async function chatWithAgentStream({
   conversation_id,
@@ -35,17 +33,23 @@ export async function chatWithAgentStream({
   if (image) formData.append('image', image)
   if (audio) formData.append('audio', audio)
 
-  const response = await fetch('/dev-api/agent/chat?stream=true', {
+  const response = await fetch(`${API_BASE}/agent/chat`, {
     method: 'POST',
     body: formData,
     credentials: 'include',
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'text/event-stream'
+    },
     cache: 'no-cache'
   })
 
   if (!response.ok) {
-    if (response.status === 401) ElMessage.error('登录已过期')
-    throw new Error(`请求失败 ${response.status}`)
+    if (response.status === 401) ElMessage.error('登录已过期，请重新登录')
+    throw new Error(`请求失败: ${response.status}`)
+  }
+  if (!response.body) {
+    throw new Error('服务端未返回流式响应体')
   }
   return response
 }
@@ -54,8 +58,20 @@ export function chatWithAgent(data) {
   return request({ url: '/agent/chat', method: 'post', data, timeout: 300000 })
 }
 
-export function getAgentHistory(conversationId, limit = 50) {
-  return request({ url: `/agent/history/${conversationId}`, method: 'get', params: { limit } })
+export function getAgentHistory(conversationId, limit = 100) {
+  return request({
+    url: `/agent/history/${conversationId}`,
+    method: 'get',
+    params: { limit }
+  })
+}
+
+export function getAgentConversations(params = {}) {
+  return request({
+    url: '/agent/conversations',
+    method: 'get',
+    params
+  })
 }
 
 export function deleteAgentConversation(conversationId) {
@@ -66,5 +82,6 @@ export default {
   chatWithAgentStream,
   chatWithAgent,
   getAgentHistory,
+  getAgentConversations,
   deleteAgentConversation
 }

@@ -1,204 +1,276 @@
 <template>
   <div class="agent-chat-page">
-    <div class="chat-header">
-      <div class="header-left">
-        <el-avatar :src="aiAvatar" size="42" class="ai-avatar" />
-        <div class="header-info">
-          <h3>AI Agent 助手</h3>
-          <p class="status">在线 •</p>
-        </div>
+    <aside class="conversation-panel">
+      <div class="panel-header">
+        <div class="panel-title">Agent 会话</div>
+        <el-button :icon="Plus" circle type="primary" @click="createNewConversation" />
       </div>
-      <div class="header-right">
-        <el-input
-          v-model="conversationId"
-          placeholder="会话ID"
-          size="small"
-          style="width: 260px"
-          clearable
-        />
-        <el-button type="primary" size="small" @click="loadHistory">加载历史</el-button>
-        <el-button type="danger" size="small" plain @click="clearConversation">清空会话</el-button>
-      </div>
-    </div>
 
-    <div class="chat-body" ref="chatBodyRef">
-      <div
-        v-for="(msg, index) in messages"
-        :key="index"
-        class="message"
-        :class="msg.role"
-      >
-        <div class="message-avatar-wrapper">
-          <el-avatar
-            :src="msg.role === 'user' ? userAvatar : aiAvatar"
-            size="42"
-            class="message-avatar"
+      <el-scrollbar class="conversation-list">
+        <div v-if="conversations.length === 0" class="list-empty">
+          暂无会话
+        </div>
+
+        <div
+          v-for="item in conversations"
+          :key="item.id"
+          class="conversation-item"
+          :class="{ active: item.id === conversationId }"
+          @click="activateConversation(item.id)"
+        >
+          <div class="item-main">
+            <div class="item-title">{{ item.title }}</div>
+            <div class="item-preview">{{ item.lastMessage || '暂无消息' }}</div>
+            <div class="item-meta">
+              <span>{{ formatTime(item.lastActiveTime) }}</span>
+              <span>{{ item.messageCount }} 条</span>
+            </div>
+          </div>
+          <el-button
+            :icon="Delete"
+            circle
+            text
+            size="small"
+            @click.stop="deleteConversation(item.id)"
           />
         </div>
+      </el-scrollbar>
+    </aside>
 
-        <div class="message-bubble" :class="{ 'has-image': hasImage(msg), 'has-audio': hasAudio(msg) }">
-          <!-- 图片 -->
-          <div v-if="getImageSrc(msg)" class="bubble-image">
-            <img
-              :src="getImageSrc(msg)"
-              alt="图片"
-              @click="previewImageFull(getImageSrc(msg))"
-            />
+    <section class="chat-panel">
+      <header class="chat-header">
+        <div class="header-left">
+          <el-avatar :src="aiAvatarSrc" size="40" class="agent-avatar agent-avatar-ai">
+            <el-icon><Service /></el-icon>
+          </el-avatar>
+          <div class="header-info">
+            <div class="header-title">AI Agent 助手</div>
+            <div class="header-subtitle">{{ conversationId || '--' }}</div>
           </div>
-
-          <!-- 音频：只显示用户语音，AI 语音永久隐藏 -->
-          <div v-if="getAudioSrc(msg) && msg.role === 'user'" class="bubble-audio">
-            <audio :src="getAudioSrc(msg)" controls preload="metadata"></audio>
-          </div>
-
-          <!-- 文字内容：图片+文字同时显示 -->
-          <div
-            v-if="shouldShowText(msg)"
-            class="bubble-text"
-            :class="{ 'markdown-body': shouldRenderMarkdown(msg) }"
-          >
-            <div v-if="shouldRenderMarkdown(msg)" v-html="renderMarkdown(msg.content)"></div>
-            <div v-else v-html="formatPlainText(msg.content)"></div>
-            <span v-if="msg.streaming" class="cursor">|</span>
-          </div>
-
-          <div class="message-time">{{ formatTime(msg.created_time) }}</div>
         </div>
-      </div>
-
-      <!-- 加载中 -->
-      <div v-if="loading && !currentStreamingMsg" class="message assistant">
-        <div class="message-avatar-wrapper">
-          <el-avatar :src="aiAvatar" size="42" class="message-avatar" />
-        </div>
-        <div class="message-bubble loading-bubble">
-          <span class="typing">AI 正在思考...</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="chat-footer">
-      <!-- 图片预览 -->
-      <div v-if="previewImage" class="image-preview-bar">
-        <div class="preview-item">
-          <img :src="previewImage" />
-          <el-icon class="remove-icon" @click="removeImage"><Close /></el-icon>
-        </div>
-      </div>
-
-      <!-- 音频预览 -->
-      <div v-if="previewAudio" class="audio-preview-bar">
-        <div class="preview-item">
-          <audio :src="previewAudio" controls></audio>
-          <el-icon class="remove-icon" @click="removeAudio"><Close /></el-icon>
-        </div>
-      </div>
-
-      <div class="input-container">
-        <div class="tools">
-          <!-- 语音长按录音按钮 -->
-          <el-button
-            circle
-            :class="{ recording: isRecording }"
-            @mousedown="startRecording"
-            @mouseup="stopRecording"
-            @mouseleave="stopRecording"
-            :disabled="loading"
-          >
-            <el-icon><Microphone /></el-icon>
+        <div class="header-actions">
+          <el-button :icon="Plus" type="primary" plain @click="createNewConversation">新建对话</el-button>
+          <el-button :icon="Delete" type="danger" plain @click="deleteConversation(conversationId)" :disabled="!conversationId">
+            删除当前
           </el-button>
-          <!-- 图片上传按钮 -->
-          <el-upload
-            action="#"
-            :show-file-list="false"
-            :auto-upload="false"
-            @change="handleImageSelect"
-          >
-            <el-button circle :disabled="loading">
-              <el-icon><Picture /></el-icon>
-            </el-button>
-          </el-upload>
+        </div>
+      </header>
+
+      <div class="chat-body" ref="chatBodyRef">
+        <div v-if="loadingHistory" class="center-state">
+          <el-icon class="is-loading"><ChatDotRound /></el-icon>
+          <span>加载历史中...</span>
         </div>
 
-        <el-input
-          v-model="inputMessage"
-          placeholder="输入消息，按 Enter 发送...（支持语音+图片+文字）"
-          @keyup.enter="sendMessage"
-          :disabled="loading"
-          clearable
-          type="textarea"
-          :rows="1"
-          autosize
-        />
+        <template v-else>
+          <div v-if="messages.length === 0" class="center-state">
+            <el-icon><ChatDotRound /></el-icon>
+            <span>开始一个新对话</span>
+          </div>
 
-        <el-button
-          type="primary"
-          :disabled="loading || (!inputMessage.trim() && !selectedImageFile && !selectedAudioFile)"
-          @click="sendMessage"
-        >
-          发送
-        </el-button>
+          <div v-for="(msg, idx) in messages" :key="idx" class="message" :class="msg.role">
+            <el-avatar
+              :src="getMessageAvatar(msg.role)"
+              class="message-avatar agent-avatar"
+              :class="msg.role === 'user' ? 'agent-avatar-user' : 'agent-avatar-ai'"
+            >
+              <el-icon>
+                <UserFilled v-if="msg.role === 'user'" />
+                <Service v-else />
+              </el-icon>
+            </el-avatar>
+            <div class="message-bubble">
+              <div v-if="msg.imageUrl" class="bubble-image">
+                <img :src="msg.imageUrl" alt="image" @click="previewImage(msg.imageUrl)" />
+              </div>
+              <div v-if="msg.audioUrl && msg.role === 'user'" class="bubble-audio">
+                <audio :src="msg.audioUrl" controls preload="metadata"></audio>
+              </div>
+
+              <div
+                v-if="msg.content"
+                class="bubble-text"
+                :class="{ markdown: shouldRenderMarkdown(msg) }"
+              >
+                <div v-if="shouldRenderMarkdown(msg)" v-html="renderMarkdown(msg.content)"></div>
+                <div v-else v-html="formatPlainText(msg.content)"></div>
+                <span v-if="msg.streaming" class="cursor"></span>
+              </div>
+              <div class="bubble-time">{{ formatTime(msg.created_time) }}</div>
+            </div>
+          </div>
+        </template>
       </div>
-    </div>
+
+      <footer class="chat-footer">
+        <div v-if="previewImageDataUrl" class="preview-row">
+          <div class="preview-item">
+            <img :src="previewImageDataUrl" alt="preview" />
+            <el-button :icon="Close" circle text @click="removeImage" />
+          </div>
+        </div>
+
+        <div v-if="previewAudioDataUrl" class="preview-row">
+          <div class="preview-item">
+            <audio :src="previewAudioDataUrl" controls></audio>
+            <el-button :icon="Close" circle text @click="removeAudio" />
+          </div>
+        </div>
+
+        <div class="input-row">
+          <div class="tool-buttons">
+            <el-button
+              circle
+              :class="{ recording: isRecording }"
+              :disabled="sending"
+              @mousedown="startRecording"
+              @mouseup="stopRecording"
+              @mouseleave="stopRecording"
+              @touchstart.prevent="startRecording"
+              @touchend.prevent="stopRecording"
+            >
+              <el-icon><Microphone /></el-icon>
+            </el-button>
+
+            <el-upload
+              action="#"
+              :show-file-list="false"
+              :auto-upload="false"
+              :disabled="sending"
+              @change="handleImageSelect"
+            >
+              <el-button circle :disabled="sending">
+                <el-icon><Picture /></el-icon>
+              </el-button>
+            </el-upload>
+          </div>
+
+          <el-input
+            v-model="inputMessage"
+            type="textarea"
+            :rows="1"
+            autosize
+            clearable
+            :disabled="sending"
+            placeholder="输入消息，Enter 发送，Shift + Enter 换行"
+            @keydown.enter.exact.prevent="sendMessage"
+          />
+
+          <el-button
+            type="primary"
+            :loading="sending"
+            :disabled="sending || (!inputMessage.trim() && !selectedImageFile && !selectedAudioFile)"
+            @click="sendMessage"
+          >
+            发送
+          </el-button>
+        </div>
+      </footer>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { ref, nextTick } from "vue"
-import { ElMessage } from "element-plus"
-import { Microphone, Picture, Close } from "@element-plus/icons-vue"
-import MarkdownIt from "markdown-it"
-import hljs from "highlight.js"
-import "highlight.js/styles/github-dark.css"
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { ChatDotRound, Close, Delete, Microphone, Picture, Plus, Service, UserFilled } from '@element-plus/icons-vue'
+import MarkdownIt from 'markdown-it'
+import hljs from 'highlight.js'
+import 'highlight.js/styles/github-dark.css'
+import defaultUserAvatar from '@/assets/images/profile.png'
+import defaultAiAvatar from '@/assets/logo/logo.png'
 
+import useUserStore from '@/store/modules/user'
 import {
   chatWithAgentStream,
-  getAgentHistory,
-  deleteAgentConversation
-} from "@/api/binhua/agent"
+  deleteAgentConversation,
+  getAgentConversations,
+  getAgentHistory
+} from '@/api/binhua/agent'
 
-// 初始化 Markdown 渲染器
+const STORAGE_KEY = 'agent:lastConversationId'
+
 const md = new MarkdownIt({
   html: false,
   linkify: true,
   typographer: true,
   breaks: true,
-  highlight: function (str, lang) {
+  highlight(str, lang) {
     if (lang && hljs.getLanguage(lang)) {
       try {
-        return '<pre class="hljs"><code>' +
-               hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
-               '</code></pre>'
-      } catch (__) {}
+        return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`
+      } catch (e) {}
     }
-    return '<pre class="hljs"><code>' + md.utils.escapeHtml(str) + '</code></pre>'
+    return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`
   }
 })
 
-const conversationId = ref("conv_" + Date.now())
-const messages = ref([])
-const inputMessage = ref("")
-const previewImage = ref(null)
-const selectedImageFile = ref(null)
-const selectedImageDataUrl = ref(null)
+const userStore = useUserStore()
+const currentUserId = computed(() => {
+  const id = userStore?.id
+  if (id === undefined || id === null) return 'user_001'
+  const text = `${id}`.trim()
+  return text || 'user_001'
+})
 
-// 音频相关
-const previewAudio = ref(null)
+const conversationId = ref('')
+const conversations = ref([])
+const messages = ref([])
+const inputMessage = ref('')
+
+const loadingHistory = ref(false)
+const sending = ref(false)
+
+const previewImageDataUrl = ref(null)
+const selectedImageFile = ref(null)
+
+const previewAudioDataUrl = ref(null)
 const selectedAudioFile = ref(null)
-const selectedAudioDataUrl = ref(null)
+
 const isRecording = ref(false)
 const mediaRecorder = ref(null)
 const audioChunks = ref([])
 
-const loading = ref(false)
-const currentStreamingMsg = ref(null)
-
 const chatBodyRef = ref(null)
 
-const userAvatar = "https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55b.png"
-const aiAvatar = "https://fastly.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy-minimal/available/github_vector.svg"
+const resolveAvatarUrl = (avatar) => {
+  const raw = (avatar || '').toString().trim()
+  if (!raw) return ''
+  if (/^(https?:)?\/\//.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw
+  if (raw.startsWith('/src/') || raw.startsWith('/assets/')) return raw
 
-// ====================== 辅助函数 ======================
+  const apiBase = (import.meta.env.VITE_APP_BASE_API || '').trim()
+  if (apiBase && raw.startsWith(`${apiBase}/`)) return raw
+  if (raw.startsWith('/')) return `${apiBase}${raw}`
+  return raw
+}
+
+const userAvatarSrc = computed(() => resolveAvatarUrl(userStore?.avatar) || defaultUserAvatar)
+const aiAvatarSrc = defaultAiAvatar
+const getMessageAvatar = (role) => (role === 'user' ? userAvatarSrc.value : aiAvatarSrc)
+
+const createConversationId = () => `conv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+const escapeHtml = (text = '') =>
+  text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const formatPlainText = (text = '') => escapeHtml(text).replace(/\n/g, '<br>')
+
+const renderMarkdown = (text = '') => {
+  try {
+    return md.render(text)
+  } catch (e) {
+    return formatPlainText(text)
+  }
+}
+
+const shouldRenderMarkdown = (msg) => msg.role === 'assistant' && !msg.streaming
+
 const scrollToBottom = async () => {
   await nextTick()
   if (chatBodyRef.value) {
@@ -206,527 +278,755 @@ const scrollToBottom = async () => {
   }
 }
 
-const hasImage = (msg) => !!msg.imageUrl || msg.type === "image"
-const hasAudio = (msg) => !!msg.audioUrl && msg.role === "user"
-
-const getImageSrc = (msg) => msg.imageUrl || (msg.type === "image" ? msg.content : null)
-const getAudioSrc = (msg) => msg.audioUrl || null
-
-// 核心：图片+文字 同时显示
-const shouldShowText = (msg) => {
-  if (!msg.content || !msg.content.trim()) return false
-  return true
+const saveLastConversationId = (id) => {
+  if (!id) return
+  localStorage.setItem(STORAGE_KEY, id)
 }
 
-const shouldRenderMarkdown = (msg) => {
-  return msg.role === "assistant" &&
-         !msg.streaming &&
-         msg.content &&
-         msg.content.trim().length > 10
-}
+const readLastConversationId = () => localStorage.getItem(STORAGE_KEY) || ''
 
-// 强化版内容预处理
-const preprocessContent = (text) => {
-  if (!text || typeof text !== 'string') return ""
-  let processed = text
-  processed = processed
-    .replace(/^(好的[，,]?|嗯[，,]?|OK[，,]?|当然可以[，,]?|没问题[，,]?|了解了[，,]?|收到[，,]?)\s*/i, '')
-    .replace(/\s*(谢谢|感谢您的提问|有帮助请点个赞|结束|完|。|～|！|!!|!!!)$/, '')
-  processed = processed
-    .replace(/[-—━─]{1,4}\s*###/g, '###')
-    .replace(/[-—━─]{1,4}\s*(\*\*[^ ]+[^ ]*\*\*)/g, '### $1')
-    .replace(/[-—━─]{1,4}\s*(详细观察|分析\/建议|总结|核心答案|图片主要内容|详细描述|建议)/gi, '### $1')
-    .replace(/^[-—━─]{3,}\s*/gm, '---\n')
-  processed = processed
-    .replace(/^\s*[-—━─]\s*(关键元素|关键点|子项|注意事项)/gm, '- $1')
-    .replace(/^\s*[-—━─]\s*/gm, '- ')
-    .replace(/^\s*\*\s*/gm, '- ')
-  processed = processed
-    .replace(/python\s*#示例代码[：:]\s*/gi, '```python\n# 示例代码\n')
-    .replace(/class([A-Za-z0-9_]+)/g, 'class $1')
-    .replace(/def([a-zA-Z_]+)/g, 'def $1')
-    .replace(/__init__\s*\(/g, '__init__(')
-    .replace(/self\./g, 'self.')
-    .replace(/([a-zA-Z0-9_]+)\s*$/m, '$1\n```')
-  processed = processed
-    .replace(/[-—━─]{4,}/g, '---')
-    .replace(/\n{4,}/g, '\n\n')
-    .replace(/([\s\S]*?)<\/think>/g, '<div class="think-block"><strong>思考过程</strong><br>$1</div>')
-  return processed.trim()
-}
-
-const renderMarkdown = (content) => {
-  if (!content) return ""
-  const processed = preprocessContent(content)
-  try {
-    return md.render(processed)
-  } catch (err) {
-    console.error("Markdown 渲染失败", err, content)
-    return escapeHtml(content).replace(/\n/g, "<br>")
+const normalizeConversation = (item = {}) => {
+  const id = item.conversationId || item.conversation_id || ''
+  return {
+    id,
+    title: item.title || `会话 ${id ? id.slice(-6) : ''}`,
+    lastMessage: item.lastMessage || item.last_message || '',
+    messageCount: item.messageCount ?? item.message_count ?? 0,
+    createdTime: item.createdTime || item.created_time || '',
+    lastActiveTime: item.lastActiveTime || item.last_active_time || item.createdTime || item.created_time || '',
+    localOnly: !!item.localOnly
   }
 }
 
-const formatPlainText = (text) => {
-  if (!text) return ""
-  return escapeHtml(text).replace(/\n/g, "<br>")
+const upsertConversation = (partial) => {
+  const item = normalizeConversation(partial)
+  if (!item.id) return
+  const idx = conversations.value.findIndex((v) => v.id === item.id)
+  if (idx === -1) {
+    conversations.value.unshift(item)
+  } else {
+    conversations.value[idx] = { ...conversations.value[idx], ...item }
+  }
+  conversations.value.sort((a, b) => new Date(b.lastActiveTime || 0).getTime() - new Date(a.lastActiveTime || 0).getTime())
 }
 
-const escapeHtml = (str) => {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
+const removeConversationFromList = (id) => {
+  conversations.value = conversations.value.filter((v) => v.id !== id)
 }
 
-// ====================== 录音功能 ======================
-const startRecording = async () => {
+const deriveTitleFromMessages = () => {
+  const firstUser = messages.value.find((m) => m.role === 'user' && (m.content || '').trim())
+  if (!firstUser) return ''
+  const text = firstUser.content.trim().replace(/\s+/g, ' ')
+  return text.length <= 28 ? text : `${text.slice(0, 28)}...`
+}
+
+const getLastMessagePreview = () => {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const content = (messages.value[i].content || '').trim()
+    if (content) return content.length <= 80 ? content : `${content.slice(0, 80)}...`
+  }
+  return ''
+}
+
+const refreshConversationList = async () => {
+  const res = await getAgentConversations({ limit: 50 })
+  const serverList = (res.data?.conversations || []).map(normalizeConversation)
+  const map = new Map(serverList.map((item) => [item.id, item]))
+
+  if (conversationId.value && !map.has(conversationId.value)) {
+    map.set(conversationId.value, normalizeConversation({
+      conversation_id: conversationId.value,
+      title: deriveTitleFromMessages() || `会话 ${conversationId.value.slice(-6)}`,
+      last_message: getLastMessagePreview(),
+      message_count: messages.value.length,
+      last_active_time: new Date().toISOString(),
+      localOnly: true
+    }))
+  }
+
+  conversations.value = Array.from(map.values()).sort(
+    (a, b) => new Date(b.lastActiveTime || 0).getTime() - new Date(a.lastActiveTime || 0).getTime()
+  )
+}
+
+const mapHistoryItem = (item) => {
+  const metadata = item.metadataJson || item.metadata_json || {}
+  return {
+    role: item.role || 'assistant',
+    content: item.content || '',
+    type: metadata.type || 'text',
+    imageUrl: metadata.imageUrl || null,
+    audioUrl: metadata.audioUrl || null,
+    created_time: item.createdTime || item.created_time || new Date().toISOString(),
+    streaming: false
+  }
+}
+
+const loadHistory = async (targetConversationId = conversationId.value) => {
+  if (!targetConversationId) return
+  loadingHistory.value = true
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    mediaRecorder.value = new MediaRecorder(stream, { mimeType: "audio/webm" })
+    const res = await getAgentHistory(targetConversationId, 100)
+    const history = (res.data?.history || []).map(mapHistoryItem)
+    conversationId.value = targetConversationId
+    saveLastConversationId(targetConversationId)
+    messages.value = history
+    await scrollToBottom()
 
-    audioChunks.value = []
-    mediaRecorder.value.ondataavailable = (e) => {
-      if (e.data.size > 0) audioChunks.value.push(e.data)
-    }
+    upsertConversation({
+      conversation_id: targetConversationId,
+      title: deriveTitleFromMessages() || `会话 ${targetConversationId.slice(-6)}`,
+      last_message: getLastMessagePreview(),
+      message_count: history.length,
+      last_active_time: history[history.length - 1]?.created_time || new Date().toISOString()
+    })
+  } catch (e) {
+    ElMessage.error('加载历史失败')
+  } finally {
+    loadingHistory.value = false
+  }
+}
 
-    mediaRecorder.value.onstop = () => {
-      const audioBlob = new Blob(audioChunks.value, { type: "audio/webm" })
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        previewAudio.value = e.target.result
-        selectedAudioDataUrl.value = e.target.result
-        selectedAudioFile.value = audioBlob
+const activateConversation = async (id) => {
+  if (!id || sending.value) return
+  if (id === conversationId.value && messages.value.length > 0) return
+  await loadHistory(id)
+}
+
+const createNewConversation = () => {
+  if (sending.value) {
+    ElMessage.warning('请等待当前回复完成')
+    return
+  }
+
+  const id = createConversationId()
+  conversationId.value = id
+  saveLastConversationId(id)
+  messages.value = []
+  inputMessage.value = ''
+  removeImage()
+  removeAudio()
+
+  upsertConversation({
+    conversation_id: id,
+    title: `会话 ${id.slice(-6)}`,
+    last_message: '',
+    message_count: 0,
+    last_active_time: new Date().toISOString(),
+    localOnly: true
+  })
+}
+
+const deleteConversation = async (id) => {
+  if (!id) return
+  try {
+    await ElMessageBox.confirm('确认删除这个会话？', '提示', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    return
+  }
+
+  try {
+    await deleteAgentConversation(id)
+    removeConversationFromList(id)
+    ElMessage.success('会话已删除')
+
+    if (conversationId.value === id) {
+      const next = conversations.value[0]
+      if (next?.id) {
+        await loadHistory(next.id)
+      } else {
+        createNewConversation()
       }
-      reader.readAsDataURL(audioBlob)
     }
-
-    mediaRecorder.value.start()
-    isRecording.value = true
-    ElMessage.info("正在录音（松开发送）")
-  } catch (err) {
-    ElMessage.error("无法访问麦克风：" + err.message)
+  } catch (e) {
+    ElMessage.error('删除会话失败')
   }
 }
 
-const stopRecording = () => {
-  if (mediaRecorder.value && isRecording.value) {
-    mediaRecorder.value.stop()
-    mediaRecorder.value.stream.getTracks().forEach(track => track.stop())
-    isRecording.value = false
-  }
-}
+const previewImage = (src) => window.open(src, '_blank')
 
-const removeAudio = () => {
-  previewAudio.value = null
-  selectedAudioFile.value = null
-  selectedAudioDataUrl.value = null
-}
-
-// ====================== 图片处理 ======================
 const handleImageSelect = (file) => {
+  if (!file?.raw) return false
   selectedImageFile.value = file.raw
   const reader = new FileReader()
   reader.onload = (e) => {
-    previewImage.value = e.target.result
-    selectedImageDataUrl.value = e.target.result
+    previewImageDataUrl.value = e.target.result
   }
   reader.readAsDataURL(file.raw)
   return false
 }
 
 const removeImage = () => {
-  previewImage.value = null
   selectedImageFile.value = null
-  selectedImageDataUrl.value = null
+  previewImageDataUrl.value = null
 }
 
-const previewImageFull = (src) => window.open(src, "_blank")
+const removeAudio = () => {
+  selectedAudioFile.value = null
+  previewAudioDataUrl.value = null
+}
 
-// ====================== 发送消息 ======================
+const startRecording = async () => {
+  if (isRecording.value) return
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    mediaRecorder.value = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+    audioChunks.value = []
+
+    mediaRecorder.value.ondataavailable = (event) => {
+      if (event.data.size > 0) audioChunks.value.push(event.data)
+    }
+
+    mediaRecorder.value.onstop = () => {
+      const audioBlob = new Blob(audioChunks.value, { type: 'audio/webm' })
+      selectedAudioFile.value = audioBlob
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        previewAudioDataUrl.value = e.target.result
+      }
+      reader.readAsDataURL(audioBlob)
+    }
+
+    mediaRecorder.value.start()
+    isRecording.value = true
+    ElMessage.info('正在录音，松开按钮停止')
+  } catch (e) {
+    ElMessage.error(`无法录音: ${e.message}`)
+  }
+}
+
+const stopRecording = () => {
+  if (!mediaRecorder.value || !isRecording.value) return
+  mediaRecorder.value.stop()
+  mediaRecorder.value.stream.getTracks().forEach((track) => track.stop())
+  isRecording.value = false
+}
+
+const parseSseDataBlock = (block) => {
+  const lines = block.split(/\r?\n/)
+  const dataLines = lines
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trimStart())
+  if (!dataLines.length) return null
+  const text = dataLines.join('\n')
+  if (!text || text === '[DONE]') return null
+  return text
+}
+
+const handleStreamPayload = (payloadText, assistantMsg) => {
+  let payload = null
+  try {
+    payload = JSON.parse(payloadText)
+  } catch {
+    payload = null
+  }
+
+  if (payload && typeof payload === 'object') {
+    const type = payload.type
+    if (type === 'meta') {
+      if (payload.conversation_id) {
+        conversationId.value = payload.conversation_id
+        saveLastConversationId(payload.conversation_id)
+      }
+      return
+    }
+    if (type === 'content' || type === 'delta') {
+      assistantMsg.content += payload.content || ''
+      return
+    }
+    if (type === 'reasoning' || type === 'run_info' || type === 'metrics' || type === 'usage') {
+      return
+    }
+    if (type === 'error') {
+      throw new Error(payload.content || '生成失败')
+    }
+    return
+  }
+
+  if (payloadText.startsWith('[ERROR]')) {
+    throw new Error(payloadText.slice(7).trim())
+  }
+  if (!payloadText.startsWith('[USAGE]') && !payloadText.startsWith('[AUDIO]')) {
+    assistantMsg.content += payloadText
+  }
+}
+
 const sendMessage = async () => {
   const hasText = inputMessage.value.trim().length > 0
-  const hasImg = !!selectedImageFile.value
-  const hasAud = !!selectedAudioFile.value
+  const hasImage = !!selectedImageFile.value
+  const hasAudio = !!selectedAudioFile.value
+  if (!hasText && !hasImage && !hasAudio) return
+  if (sending.value) return
 
-  if (!hasText && !hasImg && !hasAud) return
+  if (!conversationId.value) {
+    conversationId.value = createConversationId()
+  }
 
-  const messageType = hasImg && hasAud ? "audio_image" :
-                      hasAud ? "audio" :
-                      hasImg ? "image" : "text"
+  saveLastConversationId(conversationId.value)
 
-  // 添加用户消息
-  messages.value.push({
-    role: "user",
-    content: hasText ? inputMessage.value.trim() : (hasAud ? "[语音消息]" : ""),
-    imageUrl: hasImg ? selectedImageDataUrl.value : null,
-    audioUrl: hasAud ? selectedAudioDataUrl.value : null,
-    type: messageType,
-    created_time: new Date(),
-  })
+  const userText = inputMessage.value.trim()
+  const localUserMessage = {
+    role: 'user',
+    content: userText || (hasAudio ? '[语音消息]' : ''),
+    imageUrl: hasImage ? previewImageDataUrl.value : null,
+    audioUrl: hasAudio ? previewAudioDataUrl.value : null,
+    type: hasImage && hasAudio ? 'audio_image' : hasImage ? 'image' : hasAudio ? 'audio' : 'text',
+    created_time: new Date().toISOString(),
+    streaming: false
+  }
+  messages.value.push(localUserMessage)
 
-  await scrollToBottom()
-
-  // 保存发送内容
-  const tempText = inputMessage.value.trim()
-  const tempImage = selectedImageFile.value
-  const tempAudio = selectedAudioFile.value
-
-  // 清空输入
-  inputMessage.value = ""
-  removeImage()
-  removeAudio()
-
-  loading.value = true
-
-  // AI 消息：永远不携带音频，只显示文字
   const assistantMsg = {
-    role: "assistant",
-    content: "",
+    role: 'assistant',
+    content: '',
+    type: 'text',
+    imageUrl: null,
     audioUrl: null,
-    type: "text",
-    created_time: new Date(),
-    streaming: true,
+    created_time: new Date().toISOString(),
+    streaming: true
   }
   messages.value.push(assistantMsg)
-  currentStreamingMsg.value = assistantMsg
   await scrollToBottom()
+
+  const payloadText = userText
+  const payloadImage = selectedImageFile.value
+  const payloadAudio = selectedAudioFile.value
+
+  inputMessage.value = ''
+  removeImage()
+  removeAudio()
+  sending.value = true
+
+  upsertConversation({
+    conversation_id: conversationId.value,
+    title: deriveTitleFromMessages() || `会话 ${conversationId.value.slice(-6)}`,
+    last_message: payloadText || '[多模态消息]',
+    message_count: messages.value.length,
+    last_active_time: new Date().toISOString()
+  })
 
   try {
     const response = await chatWithAgentStream({
       conversation_id: conversationId.value,
-      message: tempText,
-      image: tempImage,
-      audio: tempAudio
+      user_id: currentUserId.value,
+      message: payloadText,
+      image: payloadImage,
+      audio: payloadAudio
     })
 
     const reader = response.body.getReader()
-    const decoder = new TextDecoder("utf-8")
-    let buffer = ""
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
 
       buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split("\n")
-      buffer = lines.pop() || ""
 
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed || !trimmed.startsWith("data: ")) continue
-
-        let content = trimmed.substring(6).trim()
-        if (content === "[DONE]") continue
-
-        // AI 语音数据直接忽略，不渲染
-        if (content.startsWith("[AUDIO]")) {
-          continue
-        } else if (content.startsWith("[ERROR]")) {
-          ElMessage.error(content.substring(7))
-        } else if (!content.startsWith("[USAGE]")) {
-          assistantMsg.content += content
+      let boundaryIndex = buffer.indexOf('\n\n')
+      while (boundaryIndex !== -1) {
+        const block = buffer.slice(0, boundaryIndex)
+        buffer = buffer.slice(boundaryIndex + 2)
+        const payload = parseSseDataBlock(block)
+        if (payload) {
+          handleStreamPayload(payload, assistantMsg)
+          await scrollToBottom()
         }
+        boundaryIndex = buffer.indexOf('\n\n')
+      }
+    }
 
-        await nextTick()
-        await scrollToBottom()
+    if (buffer.trim()) {
+      const payload = parseSseDataBlock(buffer)
+      if (payload) {
+        handleStreamPayload(payload, assistantMsg)
       }
     }
 
     assistantMsg.streaming = false
+    upsertConversation({
+      conversation_id: conversationId.value,
+      title: deriveTitleFromMessages() || `会话 ${conversationId.value.slice(-6)}`,
+      last_message: assistantMsg.content || getLastMessagePreview(),
+      message_count: messages.value.length,
+      last_active_time: new Date().toISOString()
+    })
+    await refreshConversationList()
     await scrollToBottom()
-
-  } catch (err) {
-    console.error("[发送失败]", err)
-    ElMessage.error("流式对话失败：" + (err.message || "网络错误"))
-
-    if (messages.value.length > 0 && messages.value[messages.value.length - 1] === assistantMsg) {
-      messages.value.pop()
-    }
+  } catch (e) {
+    assistantMsg.streaming = false
+    assistantMsg.content = assistantMsg.content || `请求失败：${e.message || '网络异常'}`
+    ElMessage.error(assistantMsg.content)
   } finally {
-    loading.value = false
-    currentStreamingMsg.value = null
-    await scrollToBottom()
+    sending.value = false
   }
 }
 
-// ====================== 历史 & 清空 ======================
-const loadHistory = async () => {
-  if (!conversationId.value) {
-    ElMessage.warning("请输入会话ID")
+const initializePage = async () => {
+  try {
+    await refreshConversationList()
+  } catch (e) {
+    conversations.value = []
+  }
+
+  const lastConversationId = readLastConversationId()
+  const preferred = conversations.value.find((item) => item.id === lastConversationId)
+
+  if (preferred?.id) {
+    await loadHistory(preferred.id)
     return
   }
-  loading.value = true
-  try {
-    const res = await getAgentHistory(conversationId.value)
-    if (res.data?.code === 200) {
-      messages.value = (res.data.data.history || []).map((m) => ({
-        role: m.role,
-        content: m.content,
-        type: m.metadataJson?.type || "text",
-        imageUrl: m.metadataJson?.imageUrl || null,
-        audioUrl: m.metadataJson?.audioUrl || null,
-        created_time: m.createdTime || m.created_time,
-        streaming: false,
-      }))
-      await scrollToBottom()
-    }
-  } catch (err) {
-    ElMessage.error("加载历史失败")
-  } finally {
-    loading.value = false
-  }
-}
 
-const clearConversation = async () => {
-  if (!conversationId.value) return
-  try {
-    await deleteAgentConversation(conversationId.value)
-    messages.value = []
-    ElMessage.success("会话已清空")
-  } catch (err) {
-    ElMessage.error("清空失败")
+  if (conversations.value.length > 0) {
+    await loadHistory(conversations.value[0].id)
+    return
   }
+
+  createNewConversation()
 }
 
 const formatTime = (time) => {
-  if (!time) return ""
-  return new Date(time).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+  if (!time) return '--'
+  const dt = new Date(time)
+  if (Number.isNaN(dt.getTime())) return '--'
+  return dt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
+
+onMounted(() => {
+  initializePage()
+})
 </script>
 
 <style scoped>
 .agent-chat-page {
-  height: 100vh;
+  height: calc(100vh - 84px);
+  min-height: 640px;
   display: flex;
-  flex-direction: column;
-  background: #f0f2f5;
-  font-family: "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f4f6f8;
+  color: #1f2329;
 }
 
-.chat-header {
-  height: 72px;
+.conversation-panel {
+  width: 300px;
+  border-right: 1px solid #e8edf3;
   background: #fff;
-  border-bottom: 1px solid #eee;
-  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-header {
+  height: 64px;
+  padding: 0 14px;
+  border-bottom: 1px solid #edf1f5;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  z-index: 10;
+}
+
+.panel-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.conversation-list {
+  flex: 1;
+  padding: 8px;
+}
+
+.list-empty {
+  color: #8b95a5;
+  font-size: 13px;
+  text-align: center;
+  margin-top: 24px;
+}
+
+.conversation-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.conversation-item:hover {
+  background: #f8fafc;
+}
+
+.conversation-item.active {
+  background: #eef5ff;
+  border-color: #cfe1ff;
+}
+
+.item-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.item-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-preview {
+  margin-top: 4px;
+  color: #6f7b8a;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.item-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #9ba7b7;
+  display: flex;
+  justify-content: space-between;
+}
+
+.chat-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat-header {
+  height: 64px;
+  background: #fff;
+  border-bottom: 1px solid #e8edf3;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
-.header-info h3 {
-  margin: 0;
-  font-size: 19px;
+
+.header-title {
+  font-size: 16px;
   font-weight: 600;
+  line-height: 1.2;
 }
-.status {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #67c23a;
+
+.header-subtitle {
+  font-size: 12px;
+  color: #6f7b8a;
+  line-height: 1.2;
+  margin-top: 4px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .chat-body {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 28px;
-  background: linear-gradient(to bottom, #f8f9fa, #f0f2f5);
+  padding: 18px 24px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
+  background: #f4f6f8;
+}
+
+.center-state {
+  height: 100%;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #8793a4;
+  gap: 10px;
 }
 
 .message {
   display: flex;
-  gap: 14px;
-  max-width: 78%;
+  gap: 10px;
   align-items: flex-start;
+  max-width: 82%;
 }
+
 .message.user {
   margin-left: auto;
   flex-direction: row-reverse;
 }
 
-.message-avatar-wrapper {
-  flex-shrink: 0;
-  width: 42px;
-  height: 42px;
-}
 .message-avatar {
-  width: 42px !important;
-  height: 42px !important;
-  flex-shrink: 0;
-  object-fit: cover;
+  flex: 0 0 40px;
+}
+
+.agent-avatar {
+  border: 1px solid #e5ebf2;
+  background: #ffffff;
+  color: #4f5d73;
+}
+
+.agent-avatar-ai {
+  background: #f0f7ff;
+  border-color: #cfe1ff;
+}
+
+.agent-avatar-user {
+  background: #f6f8fb;
+  border-color: #dfe6ee;
 }
 
 .message-bubble {
-  max-width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
-/* ========== 优化：聊天框内图片大小，防止遮挡 ========== */
 .bubble-image {
-  margin-bottom: 8px;
-  max-width: 240px;
-  width: fit-content;
+  max-width: 300px;
 }
+
 .bubble-image img {
   width: 100%;
-  max-height: 220px;
-  object-fit: cover;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: 8px;
   cursor: pointer;
 }
 
 .bubble-audio {
-  margin: 8px 0 12px 0;
-}
-.bubble-audio audio {
-  width: 280px;
-  max-width: 100%;
-  border-radius: 8px;
+  margin-bottom: 8px;
 }
 
 .bubble-text {
   background: #fff;
-  padding: 13px 18px;
-  border-radius: 18px;
-  border-bottom-left-radius: 6px;
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.09);
+  border: 1px solid #e7ecf1;
+  border-radius: 10px;
+  padding: 10px 12px;
   line-height: 1.58;
-  font-size: 15.2px;
+  font-size: 14px;
   word-break: break-word;
 }
+
 .message.user .bubble-text {
-  background: #409eff;
-  color: white;
-  border-bottom-right-radius: 6px;
-  border-bottom-left-radius: 18px;
-  margin-top: 8px;
-}
-
-.bubble-text.markdown-body {
-  padding: 12px 18px;
-  background: #fff;
-}
-.message.user .bubble-text.markdown-body {
-  background: #409eff;
-  color: white;
-}
-
-.bubble-text :deep(h1), .bubble-text :deep(h2), .bubble-text :deep(h3),
-.bubble-text :deep(h4), .bubble-text :deep(h5), .bubble-text :deep(h6) {
-  font-weight: 600;
-  margin: 0.8em 0 0.4em;
-}
-.bubble-text :deep(ul), .bubble-text :deep(ol) {
-  padding-left: 1.5em;
-  margin: 0.5em 0;
-}
-.bubble-text :deep(pre) {
-  background: #2d2d2d;
-  border-radius: 8px;
-  padding: 12px;
-  overflow-x: auto;
-  margin: 12px 0;
-}
-.bubble-text :deep(code) {
-  font-family: 'Fira Code', 'Consolas', monospace;
-  font-size: 13px;
-}
-.bubble-text :deep(a) {
-  color: #409eff;
-}
-.message.user .bubble-text :deep(a) {
+  background: #2f88ff;
+  border-color: #2f88ff;
   color: #fff;
 }
 
-.message-time {
-  font-size: 12.5px;
-  color: #a8a8a8;
-  margin-top: 6px;
-  padding-left: 8px;
+.bubble-text.markdown :deep(pre) {
+  background: #1f2430;
+  border-radius: 6px;
+  padding: 10px;
+  overflow-x: auto;
 }
 
-.loading-bubble {
-  background: white;
-  padding: 13px 20px;
-  border-radius: 18px;
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+.bubble-text.markdown :deep(code) {
+  font-size: 12px;
 }
-.typing {
-  color: #909399;
-  font-style: italic;
+
+.bubble-time {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #99a4b4;
 }
 
 .chat-footer {
-  padding: 16px 24px;
+  border-top: 1px solid #e8edf3;
   background: #fff;
-  border-top: 1px solid #eee;
+  padding: 12px 18px 16px;
 }
 
-/* ========== 优化：底部预览图片大小，不遮挡输入框 ========== */
-.image-preview-bar, .audio-preview-bar {
+.preview-row {
   margin-bottom: 8px;
-  padding: 6px 10px;
-  background: #f7f8fa;
-  border-radius: 8px;
 }
+
 .preview-item {
-  position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f6f8fb;
+  border: 1px solid #e7edf5;
+  border-radius: 8px;
+  padding: 8px;
 }
+
 .preview-item img {
-  max-height: 60px;
+  max-height: 64px;
   border-radius: 6px;
 }
-.remove-icon {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  color: #f56c6c;
-  cursor: pointer;
-  background: #fff;
-  border-radius: 50%;
-  padding: 1px;
-  font-size: 14px;
+
+.input-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
 }
 
-.input-container {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-.tools {
+.tool-buttons {
   display: flex;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .cursor {
   display: inline-block;
-  width: 3px;
-  background: #409eff;
-  animation: blink 0.8s step-end infinite;
+  width: 2px;
+  height: 14px;
+  margin-left: 2px;
+  background: currentColor;
+  animation: blink 1s step-end infinite;
 }
-@keyframes blink { 50% { opacity: 0; } }
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
 
 .recording {
-  background-color: #f56c6c !important;
-  color: white !important;
-  animation: pulse 1.2s infinite;
+  background: #ff5f56 !important;
+  color: #fff !important;
 }
-@keyframes pulse {
-  0%,100% { transform: scale(1); }
-  50% { transform: scale(1.15); }
+
+@media (max-width: 1100px) {
+  .conversation-panel {
+    width: 250px;
+  }
+}
+
+@media (max-width: 900px) {
+  .conversation-panel {
+    display: none;
+  }
+
+  .chat-header {
+    padding: 0 12px;
+  }
+
+  .chat-body {
+    padding: 14px 12px;
+  }
+
+  .chat-footer {
+    padding: 10px 12px 12px;
+  }
 }
 </style>

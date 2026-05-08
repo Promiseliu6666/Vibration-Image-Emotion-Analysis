@@ -1,7 +1,7 @@
 // people.js
 import request from '@/utils/request'
 
-// 查询人员列表（分页）
+// 查询人员列表
 export function listPeople(query) {
   return request({
     url: '/people/list',
@@ -36,7 +36,7 @@ export function delPeople(id) {
   })
 }
 
-// 人脸比对（单次）
+// 人脸比对
 export function faceCompare(data) {
   return request({
     url: '/people/face-compare',
@@ -45,11 +45,20 @@ export function faceCompare(data) {
   })
 }
 
-// 人脸比对（全部/批量）
 export function faceCompareAll(data) {
   return request({
     url: '/people/face-compare-all',
     method: 'post',
     data
+  })
+}
+
+// ==================== 批量导入（Excel + ZIP） ====================
+export function batchImportPeople(data) {
+  return request({
+    url: '/people/import',
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data' }
   })
 }

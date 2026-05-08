@@ -1,8 +1,10 @@
 import base64
+import json
 import traceback
-from typing import Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, Request, Form, File, UploadFile
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,59 +13,70 @@ from config.get_db import get_db
 from module_admin.annotation.integration_log_annotation import integration_log
 from module_xuzhou.auth import unified_auth
 from module_xuzhou.dao.agent_dao import AgentDao
-from module_xuzhou.service.agent_service import AgentService
 from module_xuzhou.entity.vo.agent_vo import AgentMessagePageQueryModel
+from module_xuzhou.service.agent_service import AgentService
 from utils.log_util import logger
 from utils.page_util import PageResponseModel
 from utils.response_util import ResponseUtil
 
 agent_controller = APIRouter(
     prefix="/agent",
-    dependencies=[Depends(unified_auth)]   # 测试时可先注释
+    dependencies=[Depends(unified_auth)],
 )
 
 
-@agent_controller.post("/chat", summary="AI Agent 对话（Qwen3-Omni-Flash 全模态流式）")
+@agent_controller.post("/chat", summary="AI Agent streaming chat")
 @integration_log(
-    title="AI Agent 对话",
-    system_name="徐州人员管理系统",
+    title="AI Agent Chat",
+    system_name="Xuzhou Personnel Management System",
     business_type=BusinessType.OTHER,
 )
 async def agent_chat(
     request: Request,
-    conversation_id: str = Form(..., description="会话ID"),
-    user_id: Optional[str] = Form(None, description="用户ID"),
-    message: str = Form("", description="用户输入文字"),
-    model: str = Form("qwen3-omni-flash", description="模型名称"),
-    image: Optional[UploadFile] = File(None, description="图片文件"),
-    audio: Optional[UploadFile] = File(None, description="语音文件"),
+    conversation_id: str = Form(..., description="Conversation ID"),
+    user_id: Optional[str] = Form(None, description="User ID"),
+    message: str = Form("", description="User text input"),
+    model: str = Form("qwen3-omni-flash", description="Model name"),
+    image: Optional[UploadFile] = File(None, description="Image file"),
+    audio: Optional[UploadFile] = File(None, description="Audio file"),
     query_db: AsyncSession = Depends(get_db),
 ):
     try:
-        if not conversation_id or conversation_id.strip() == "":
+        if not conversation_id or not conversation_id.strip():
             conversation_id = f"conv_{int(datetime.now().timestamp())}"
+        conversation_id = conversation_id.strip()
 
         image_base64 = None
         if image:
-            content = await image.read()
-            image_base64 = base64.b64encode(content).decode("utf-8")
+            image_content = await image.read()
+            image_base64 = base64.b64encode(image_content).decode("utf-8")
 
         audio_base64 = None
         if audio:
-            content = await audio.read()
-            audio_base64 = base64.b64encode(content).decode("utf-8")
+            audio_content = await audio.read()
+            audio_base64 = base64.b64encode(audio_content).decode("utf-8")
 
         async def event_generator():
-            async for token in AgentService.stream_chat(
+            yield (
+                "data: "
+                + json.dumps(
+                    {"type": "meta", "conversation_id": conversation_id},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+
+            async for event in AgentService.stream_chat(
                 query_db=query_db,
-                conversation_id=conversation_id.strip(),
+                conversation_id=conversation_id,
                 user_id=user_id,
                 user_input=message,
                 image_base64=image_base64,
                 audio_base64=audio_base64,
                 model=model,
             ):
-                yield f"data: {token}\n\n"
+                payload = event if isinstance(event, dict) else {"type": "delta", "content": str(event)}
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
             yield "data: [DONE]\n\n"
 
@@ -73,22 +86,26 @@ async def agent_chat(
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
+                "X-Accel-Buffering": "no",
+            },
         )
-
     except Exception as e:
         await query_db.rollback()
-        logger.error(f"Agent 对话失败: {str(e)}")
+        logger.error(f"Agent chat failed: {str(e)}")
         logger.error(traceback.format_exc())
+        payload = json.dumps({"type": "error", "content": str(e)}, ensure_ascii=False)
         return StreamingResponse(
-            iter([f"data: [ERROR] {str(e)}\n\n"]),
-            media_type="text/event-stream"
+            iter([f"data: {payload}\n\n", "data: [DONE]\n\n"]),
+            media_type="text/event-stream",
         )
 
 
-@agent_controller.get("/history/{conversation_id}", summary="获取会话历史消息")
-@integration_log(title="获取 Agent 会话历史", system_name="徐州人员管理系统", business_type=BusinessType.OTHER)
+@agent_controller.get("/history/{conversation_id}", summary="Get conversation history")
+@integration_log(
+    title="Get Agent Conversation History",
+    system_name="Xuzhou Personnel Management System",
+    business_type=BusinessType.OTHER,
+)
 async def get_agent_history(
     request: Request,
     conversation_id: str,
@@ -99,12 +116,42 @@ async def get_agent_history(
         history = await AgentService.get_chat_history(query_db, conversation_id, limit)
         return ResponseUtil.success(data={"history": history})
     except Exception as e:
-        logger.error(f"获取历史消息失败: {str(e)}")
-        return ResponseUtil.error(msg=f"获取历史失败: {str(e)}")
+        logger.error(f"Get history failed: {str(e)}")
+        return ResponseUtil.error(msg=f"Get history failed: {str(e)}")
 
 
-@agent_controller.get('/list', response_model=PageResponseModel, summary='分页查询 Agent 消息记录')
-@integration_log(title='查询 Agent 消息列表', system_name='徐州人员管理系统', business_type=BusinessType.OTHER)
+@agent_controller.get("/conversations", summary="Get conversation summaries")
+@integration_log(
+    title="Get Agent Conversation List",
+    system_name="Xuzhou Personnel Management System",
+    business_type=BusinessType.OTHER,
+)
+async def get_agent_conversations(
+    request: Request,
+    user_id: Optional[str] = None,
+    limit: int = 20,
+    query_db: AsyncSession = Depends(get_db),
+):
+    try:
+        safe_limit = max(1, min(limit, 100))
+        conversations = await AgentService.get_conversation_list(
+            query_db=query_db,
+            user_id=user_id,
+            limit=safe_limit,
+        )
+        return ResponseUtil.success(data={"conversations": conversations})
+    except Exception as e:
+        logger.error(f"Get conversation list failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        return ResponseUtil.error(msg=f"Get conversation list failed: {str(e)}")
+
+
+@agent_controller.get("/list", response_model=PageResponseModel, summary="Paged query for agent messages")
+@integration_log(
+    title="Get Agent Message List",
+    system_name="Xuzhou Personnel Management System",
+    business_type=BusinessType.OTHER,
+)
 async def get_agent_message_list(
     request: Request,
     page_num: int = 1,
@@ -114,7 +161,7 @@ async def get_agent_message_list(
     agent_id: Optional[str] = None,
     role: Optional[str] = None,
     include_deleted: bool = False,
-    order_by: Optional[str] = 'created_time',
+    order_by: Optional[str] = "created_time",
     query_db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -134,13 +181,17 @@ async def get_agent_message_list(
         return ResponseUtil.success(data=result)
     except Exception as e:
         await query_db.rollback()
-        logger.error(f"查询 Agent 消息列表失败: {str(e)}")
+        logger.error(f"Get agent message list failed: {str(e)}")
         logger.error(traceback.format_exc())
-        return ResponseUtil.error(msg=f"查询失败: {str(e)}")
+        return ResponseUtil.error(msg=f"Query failed: {str(e)}")
 
 
-@agent_controller.delete("/conversation/{conversation_id}", summary="软删除整个会话")
-@integration_log(title="删除 Agent 会话", system_name="徐州人员管理系统", business_type=BusinessType.DELETE)
+@agent_controller.delete("/conversation/{conversation_id}", summary="Soft delete conversation")
+@integration_log(
+    title="Delete Agent Conversation",
+    system_name="Xuzhou Personnel Management System",
+    business_type=BusinessType.DELETE,
+)
 async def delete_conversation(
     request: Request,
     conversation_id: str,
@@ -149,8 +200,8 @@ async def delete_conversation(
     try:
         await AgentDao.soft_delete_by_conversation(query_db, conversation_id)
         await query_db.commit()
-        return ResponseUtil.success(msg="会话删除成功")
+        return ResponseUtil.success(msg="Conversation deleted successfully")
     except Exception as e:
         await query_db.rollback()
-        logger.error(f"删除会话失败: {str(e)}")
-        return ResponseUtil.error(msg=f"删除失败: {str(e)}")
+        logger.error(f"Delete conversation failed: {str(e)}")
+        return ResponseUtil.error(msg=f"Delete failed: {str(e)}")
