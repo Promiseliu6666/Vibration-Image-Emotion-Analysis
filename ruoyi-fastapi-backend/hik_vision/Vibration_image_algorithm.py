@@ -100,8 +100,8 @@ class VibraimageCore:
 
     def _detect_face(self, frame_640):
         """优先使用DNN"""
-        model_file = "res10_300x300_ssd_iter_140000.caffemodel"
-        config_file = "deploy.prototxt"
+        model_file = os.path.join("algorithm", "model", "face_detection", "v1", "res10_300x300_ssd_iter_140000.caffemodel")
+        config_file = os.path.join("algorithm", "model", "face_detection", "v1", "deploy.prototxt")
         if os.path.exists(model_file) and os.path.exists(config_file):
             net = cv2.dnn.readNetFromCaffe(config_file, model_file)
             h, w = frame_640.shape[:2]

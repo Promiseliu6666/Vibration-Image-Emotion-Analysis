@@ -34,19 +34,20 @@ from module_admin.controller.server_controller import serverController
 from module_admin.controller.user_controller import userController
 from module_generator.controller.gen_controller import genController
 from module_xuzhou.controller.algorithm_controller import algorithmController
-from module_xuzhou.controller.command_controller import message_callback, commandController
+from module_xuzhou.controller.command_controller import message_callback, commandController, localStreamController
 from module_xuzhou.controller.group_controller import group_controller
 from module_xuzhou.controller.people_controller import people_controller
 from module_xuzhou.controller.scene_controller import sceneController
-from module_xuzhou.controller.video_controller import videoController
+from module_xuzhou.controller.video_controller import videoController as xuzhouVideoController
 from module_xuzhou.controller.analysis_controller import analysis_controller
 from module_xuzhou.controller.alarm_controller import alarmController
+
 from module_task.monitor_controller import monitorController
 from module_task.inference_monitor import start_inference_monitor
 from sub_applications.handle import handle_sub_applications
 from module_xuzhou.controller.agent_controller import agent_controller
 from utils.log_util import logger
-from hik_vision.hik_vision import videoController
+from hik_vision.hik_vision import videoController as hikVisionVideoController
 
 # 生命周期事件
 @asynccontextmanager
@@ -101,7 +102,7 @@ controller_list = [
     {'router': configController, 'tags': ['系统管理-参数管理']},
     {'router': noticeController, 'tags': ['系统管理-通知公告管理']},
     {'router': logController, 'tags': ['系统管理-日志管理']},
-    {"router" : videoController,'tags': ['系统监控-数据监控']},
+    {"router" : xuzhouVideoController,'tags': ['徐州视频管理']},
     {'router': onlineController, 'tags': ['系统监控-在线用户']},
     {'router': jobController, 'tags': ['系统监控-定时任务']},
     {'router': serverController, 'tags': ['系统监控-菜单管理']},
@@ -117,6 +118,7 @@ controller_list = [
     {'router': people_controller, 'tags': ['人员']},
     {'router': group_controller, 'tags': ['人员组']},
     {'router': monitorController, 'tags': ['推理监控']},
+    {'router': hikVisionVideoController, 'tags': ['系统监控-实时分析']},
     {'router': agent_controller, 'tags': ['AI Agent']}
 ]
 
@@ -142,3 +144,4 @@ for controller in controller_list:
     app.include_router(router=controller.get('router'), tags=controller.get('tags'))
 
 app.include_router(router=managerCompatController, tags=['Manager API Compatibility'])
+app.include_router(router=localStreamController, tags=['本地摄像头MJPEG流'])

@@ -107,6 +107,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+binhua_box/box.env
 env/
 venv/
 ENV/

@@ -19,4 +19,6 @@ class XuzhouVideo(Base):
     vid_algorithm_name = Column(String(1000), nullable=True, default=None, comment='算法名称')
     vid_algorithm = Column(Text, nullable=True, default=None, comment='算法信息')
     vid_uri = Column(String(1000), nullable=True, default=None, comment='视频URI')
+    vid_box_serial = Column(String(100), nullable=True, default=None, comment='所属盒子序列号')
+    vid_analysis_mode = Column(String(20), nullable=True, default='realtime', comment='分析模式(realtime/clip)')
     vid_update_time = Column(DateTime, nullable=True, default=None, comment='更新时间')

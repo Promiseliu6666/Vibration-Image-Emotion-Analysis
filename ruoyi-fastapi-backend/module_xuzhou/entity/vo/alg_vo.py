@@ -18,6 +18,9 @@ class AlgModel(BaseModel):
     alg_serial: Optional[str] = Field(default=None, description='算法序列号')
     alg_common: Optional[str] = Field(default=None, description='算法通用字段')
     alg_default_conf: Optional[str] = Field(default=None, description='算法默认配置(JSON字符串)')
+    alg_weight_path: Optional[str] = Field(default=None, description='算法权重文件路径')
+    alg_runtime_type: str = Field(default='external_box', description='运行位置: local/external_box')
+    alg_enabled: bool = Field(default=True, description='是否启用')
     alg_update_time: Optional[datetime] = Field(default=None, description='更新时间')
 
 

@@ -59,6 +59,12 @@ class VideoDao:
                 XuzhouVideo.vid_name.like(f'%{query_object.vid_name}%') if query_object.vid_name else True,
                 XuzhouVideo.vid_serial.like(f'%{query_object.vid_serial}%') if query_object.vid_serial else True,
                 XuzhouVideo.vid_type.like(f'%{query_object.vid_type}%') if query_object.vid_type else True,
+                XuzhouVideo.vid_box_serial.like(f'%{query_object.vid_box_serial}%')
+                if query_object.vid_box_serial and query_object.vid_box_serial != '__server__'
+                else True,
+                (XuzhouVideo.vid_box_serial.is_(None) | (XuzhouVideo.vid_box_serial == ''))
+                if query_object.vid_box_serial == '__server__'
+                else True,
                 XuzhouVideo.vid_scene_name.like(f'%{query_object.vid_scene_name}%')
                 if query_object.vid_scene_name
                 else True,
@@ -127,7 +133,12 @@ class VideoDao:
         :return: 视频列表
         """
         result = await db.execute(
-            select(XuzhouVideo.vid_id, XuzhouVideo.vid_scene_name, XuzhouVideo.vid_algorithm_name)
+            select(
+                XuzhouVideo.vid_id,
+                XuzhouVideo.vid_scene_name,
+                XuzhouVideo.vid_algorithm_name,
+                XuzhouVideo.vid_algorithm,
+            )
         )
         return result.all()
 

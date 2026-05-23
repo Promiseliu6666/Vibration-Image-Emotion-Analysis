@@ -30,38 +30,79 @@ class VideoService:
         # 修改个别字段 - 对 vidAlgorithm 和 vidAlgorithmName 进行 JSON 序列化
         if hasattr(video_list_result, 'rows') and isinstance(video_list_result.rows, list):
             # 导入设备状态缓存（需要在controller层传入或全局访问）
-            from module_xuzhou.controller.command_controller import device_status_cache
+            from module_xuzhou.controller.command_controller import device_status_cache, box_registry
+            from datetime import datetime as dt
+
             # 处理分页结果
             for item in video_list_result.rows:
-                if 'vidAlgorithm' in item:
+                if 'vidAlgorithm' in item and item['vidAlgorithm'] is not None:
                     item['vidAlgorithm'] = json.loads(item['vidAlgorithm'])
-                if 'vidAlgorithmName' in item:
+                if 'vidAlgorithmName' in item and item['vidAlgorithmName'] is not None:
                     item['vidAlgorithmName'] = json.loads(item['vidAlgorithmName'])
-                
+
                 # 添加设备运行状态检查 - 从设备状态缓存中获取
                 try:
                     vid_id = item.get('vidId')
+                    vid_box_serial = item.get('vidBoxSerial') or item.get('vid_box_serial')
+
+                    # 检查盒子是否在线
+                    box_offline = False
+                    if vid_box_serial:
+                        box_info = box_registry.get(str(vid_box_serial))
+                        if box_info:
+                            try:
+                                last_seen = dt.fromisoformat(box_info['last_seen']).timestamp()
+                                box_offline = dt.now().timestamp() - last_seen > 60
+                            except Exception:
+                                box_offline = True
+                        else:
+                            box_offline = True  # box never registered
+
                     if vid_id and vid_id in device_status_cache:
                         device_status = device_status_cache[vid_id]
-                        item['deviceStatus'] = device_status.get('status', 'unknown')
+                        if box_offline:
+                            item['deviceStatus'] = 'offline'
+                            item['deviceErrorMessage'] = f'盒子 {vid_box_serial} 已离线'
+                        else:
+                            item['deviceStatus'] = device_status.get('status', 'unknown')
+                            item['deviceErrorMessage'] = device_status.get('error_message', '')
                         item['deviceUpdateTime'] = device_status.get('update_time')
-                        item['isRunning'] = device_status.get('status') == 'running'
+                        item['isRunning'] = device_status.get('status') == 'running' and not box_offline
+                    elif item.get('vidType') == 'local' and not vid_box_serial:
+                        # 纯本地摄像头(未绑定盒子) — 默认运行中
+                        item['deviceStatus'] = 'running'
+                        item['deviceUpdateTime'] = None
+                        item['isRunning'] = True
+                        item['deviceErrorMessage'] = ''
+                    elif item.get('vidType') == 'local' and vid_box_serial:
+                        # 盒子上的本地摄像头 — 等盒子回报状态
+                        item['deviceStatus'] = 'stopped'
+                        item['deviceUpdateTime'] = None
+                        item['isRunning'] = False
+                        item['deviceErrorMessage'] = ''
+                    elif box_offline:
+                        item['deviceStatus'] = 'offline'
+                        item['deviceUpdateTime'] = None
+                        item['isRunning'] = False
+                        item['deviceErrorMessage'] = f'盒子 {vid_box_serial} 已离线'
                     else:
                         item['deviceStatus'] = 'unknown'
                         item['deviceUpdateTime'] = None
                         item['isRunning'] = False
+                        item['deviceErrorMessage'] = ''
                 except Exception as e:
                     # 如果获取设备状态失败，设置默认值
                     item['deviceStatus'] = 'unknown'
                     item['deviceUpdateTime'] = None
                     item['isRunning'] = False
+                    item['deviceErrorMessage'] = ''
                     import logging
                     logging.warning(f"获取视频设备状态失败 - vid_id: {item.get('vidId')}, 错误: {e}")
             
             # 计算全局设备状态统计
             # 获取视频总数（不受筛选条件影响）
             total_count = await VideoDao.get_video_count(query_db)
-            running_count = len(device_status_cache)
+            running_count = sum(1 for item in video_list_result.rows if item.get('isRunning'))
             stopped_count = max(0, total_count - running_count)
             
             setattr(video_list_result, 'running_count', running_count)
@@ -102,9 +143,7 @@ class VideoService:
                     # 如果解析失败，保持原始字符串格式（兼容旧数据）
                     pass
 
-            video_model = VideoModel(**video_dict)
-
-            return video_model.model_dump()
+            return video_dict
         else:
             return {}
 
@@ -141,9 +180,7 @@ class VideoService:
                     # 如果解析失败，保持原始字符串格式（兼容旧数据）
                     pass
 
-            video_model = VideoModel(**video_dict)
-
-            return video_model.model_dump()
+            return video_dict
         else:
             return {}
 

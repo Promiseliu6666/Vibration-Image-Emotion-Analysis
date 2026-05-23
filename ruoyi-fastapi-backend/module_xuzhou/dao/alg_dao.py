@@ -24,6 +24,47 @@ class AlgDao:
         return alg_info
 
     @classmethod
+    async def get_alg_by_serial_version(cls, db: AsyncSession, alg_serial: str, alg_version: str):
+        """
+        根据算法序列号和版本获取算法信息
+
+        :param db: orm对象
+        :param alg_serial: 算法序列号
+        :param alg_version: 算法版本
+        :return: 算法信息对象
+        """
+        alg_info = (
+            await db.execute(
+                select(XuzhouAlg).where(
+                    XuzhouAlg.alg_serial == alg_serial,
+                    XuzhouAlg.alg_version == alg_version,
+                )
+            )
+        ).scalars().first()
+
+        return alg_info
+
+    @classmethod
+    async def get_enabled_alg_by_id(cls, db: AsyncSession, alg_id: int):
+        """
+        根据算法id获取已启用算法信息
+
+        :param db: orm对象
+        :param alg_id: 算法id
+        :return: 算法信息对象
+        """
+        alg_info = (
+            await db.execute(
+                select(XuzhouAlg).where(
+                    XuzhouAlg.alg_id == alg_id,
+                    XuzhouAlg.alg_enabled.is_(True),
+                )
+            )
+        ).scalars().first()
+
+        return alg_info
+
+    @classmethod
     async def get_alg_details_by_ids(cls, db: AsyncSession, alg_ids: list):
         """
         根据算法id列表获取算法详细信息列表
@@ -85,7 +126,8 @@ class AlgDao:
         :param alg: 需要更新的算法字典
         :return:
         """
-        await db.execute(update(XuzhouAlg), [alg])
+        alg_id = alg.pop('alg_id')
+        await db.execute(update(XuzhouAlg).where(XuzhouAlg.alg_id == alg_id).values(alg))
 
     @classmethod
     async def delete_alg_dao(cls, db: AsyncSession, alg_id: int):

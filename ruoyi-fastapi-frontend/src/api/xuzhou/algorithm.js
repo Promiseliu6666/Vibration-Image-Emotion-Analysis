@@ -43,6 +43,17 @@ export function getStatistics() {
   })
 }
 
+// 上传算法权重
+export function uploadAlgorithmWeight(data, onUploadProgress) {
+  return request({
+    url: '/xuzhou/algorithm/upload-weight',
+    method: 'post',
+    data,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress
+  })
+}
+
 export function getCharts() {
   return request({
     url: '/xuzhou/algorithm/charts',

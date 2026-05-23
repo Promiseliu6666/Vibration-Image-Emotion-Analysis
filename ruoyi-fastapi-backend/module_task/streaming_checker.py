@@ -1,6 +1,7 @@
 import json
-import aiohttp
 import asyncio
+
+import httpx
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,7 +65,7 @@ class StreamingStatusChecker:
             
             for api_url in api_urls:
                 try:
-                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
+                    async with httpx.AsyncClient(timeout=self.timeout) as session:
                         async with session.get(api_url) as response:
                             if response.status == 200:
                                 data = await response.json()
@@ -143,7 +144,7 @@ class StreamingStatusChecker:
             # 尝试获取FLV播放列表页面
             flv_url = f"http://{SRSConfig.srs_flv_url}/live/"
             
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
+            async with httpx.AsyncClient(timeout=self.timeout) as session:
                 async with session.get(flv_url) as response:
                     if response.status == 200:
                         content = await response.text()

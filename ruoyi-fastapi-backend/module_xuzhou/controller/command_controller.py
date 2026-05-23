@@ -2,20 +2,23 @@ import json
 import asyncio
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 import aio_pika
+import cv2
 from fastapi import APIRouter, Depends, Request
 from fastapi import Body
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from algorithm.runtime_service import AlgorithmRuntimeService, algorithm_run_registry
 from config.enums import BusinessType
 from config.get_db import get_db
 from module_admin.annotation.integration_log_annotation import integration_log
 from module_xuzhou.auth import unified_auth
 from module_xuzhou.dao.alg_dao import AlgDao
 from module_xuzhou.service.alarm_service import AlarmService
+from module_xuzhou.service.box_network import build_box_base_urls
 from module_xuzhou.service.video_service import VideoService
 from utils.log_util import logger
 from utils.message_util import RabbitMQService
@@ -24,7 +27,15 @@ from config.env import SRSConfig, RabbitMQConfig
 from config.get_rabbitmq import RabbitMQUtil
 from config.get_srs import SRSUtil
 
+def _encode_jpeg(frame) -> bytes:
+    _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    return jpeg.tobytes()
+
+
 commandController = APIRouter(prefix='/xuzhou/command', dependencies=[Depends(unified_auth)])
+
+# 公开路由 — 供 <img> 标签直连 MJPEG 流，不经过 unified_auth
+localStreamController = APIRouter(prefix='/xuzhou/command')
 
 # 存储接收到的消息
 received_messages = {}
@@ -35,13 +46,32 @@ device_status_cache = {}
 # 视频推送时间缓存
 video_start_time = {}
 
+# 盒子上线注册表 {serial: {box_name, host, capabilities, last_seen, status}}
+box_registry: dict[str, dict] = {}
+
+
+async def save_box_register(message: dict):
+    """处理盒子上线注册/心跳消息"""
+    serial = message.get('serial', '')
+    if not serial:
+        return
+    box_registry[serial] = {
+        'serial': serial,
+        'box_name': message.get('box_name', f'box_{serial}'),
+        'host': message.get('host', ''),
+        'ip': message.get('ip', ''),
+        'port': message.get('port', 9100),
+        'capabilities': message.get('capabilities', []),
+        'last_seen': datetime.now().isoformat(),
+        'status': 'online',
+    }
+
 
 async def save_cache_message(message: dict):
     """
     保存预警消息到数据库
     """
     await AlarmService.save_alarm_message(message)
-
 
 
 async def save_device_status(message: dict):
@@ -59,6 +89,22 @@ async def save_device_status(message: dict):
                 return
         
         devices = message.get('devices', [])
+        box_serial = message.get('serial')
+        if box_serial is not None:
+            reported_vid_ids = {device.get('vid_id') for device in devices if device.get('vid_id') is not None}
+            now_iso = datetime.now().isoformat()
+            for cached_vid_id, cached_info in list(device_status_cache.items()):
+                if cached_info.get('serial') == box_serial and cached_vid_id not in reported_vid_ids:
+                    device_status_cache[cached_vid_id] = {
+                        **cached_info,
+                        'status': 'stopped',
+                        'update_time': now_iso,
+                        'start_time': None,
+                        'error_message': '',
+                    }
+                    algorithm_run_registry.mark_camera_runs_status(cached_vid_id, 'stopped', runtime_type='external_box')
+                    logger.info(f"盒子 {box_serial} 未上报设备 {cached_vid_id}，标记为 stopped")
+
         # 更新每个设备的状态（以vid_id为key）
         new_device_status = {}
         for device in devices:
@@ -72,13 +118,17 @@ async def save_device_status(message: dict):
                     'update_time': datetime.now().isoformat(),
                     'start_time': start_time,
                     'vid_id': vid_id,
-                    'serial': message.get('serial')  # 保留serial信息用于参考
+                    'serial': message.get('serial'),
+                    'error_message': device.get('error_message', ''),
                 }
                 logger.info(f"更新设备状态 - vid_id: {vid_id}, status: {status}")
+                if status == 'running':
+                    algorithm_run_registry.mark_camera_runs_status(vid_id, 'running', runtime_type='external_box')
+                elif status in {'stopped', 'failed', 'error'}:
+                    algorithm_run_registry.mark_camera_runs_status(vid_id, status, runtime_type='external_box')
             else:
                 logger.warning(f"设备信息不完整: {device}")
         
-        device_status_cache.clear()
         device_status_cache.update(new_device_status)
         logger.info(f"缓存设备状态：{device_status_cache}")
         
@@ -90,46 +140,47 @@ async def save_device_status(message: dict):
             monitor = get_inference_monitor()
             
             async with AsyncSessionLocal() as session:
+                video_type_cache: dict[int, str] = {}
                 for vid_id, info in new_device_status.items():
-                    if info.get('status') == 'running':
-                        if time.time() - info.get('start_time', 0) < 40:
-                            continue
-                            
-                        should_stop = True
-                        
-                        # 获取该视频的定时任务配置
-                        job_config = await monitor.get_video_job_config(session, vid_id)
-                        
-                        # 构造任务对象用于检查
-                        task = {
-                            'vid_id': vid_id,
-                            'job_config': job_config
-                        }
-                        
-                        current_time = datetime.now()
-                        if await monitor.should_task_run_now(session, task, current_time.hour, current_time.weekday()):
-                            should_stop = False
-                            # logger.info(f"视频 {vid_id} 在任务时间范围内，保持运行")
-                        
-                        # 2. 如果不在时间范围内，检查是否有用户在观看
+                    if info.get('status') != 'running':
+                        continue
+
+                    if time.time() - info.get('start_time', 0) < 40:
+                        continue
+
+                    if vid_id not in video_type_cache:
+                        video_detail = await VideoService.video_detail_services(session, vid_id)
+                        video_type_cache[vid_id] = (video_detail or {}).get('vidType') or (video_detail or {}).get('vid_type') or ''
+                    if video_type_cache.get(vid_id) in {'local', 'usb'}:
+                        continue
+
+                    should_stop = True
+
+                    # 获取该视频的定时任务配置
+                    job_config = await monitor.get_video_job_config(session, vid_id)
+
+                    # 构造任务对象用于检查
+                    task = {'vid_id': vid_id, 'job_config': job_config}
+
+                    current_time = datetime.now()
+                    if await monitor.should_task_run_now(session, task, current_time.hour, current_time.weekday()):
+                        should_stop = False
+
+                    # 检查SRS是否有客户端连接 (SRS不可达时不自动停止)
+                    client_count = await asyncio.to_thread(SRSUtil.check_stream_players, f'publish_{vid_id}')
+                    if client_count < 0:
+                        should_stop = False  # SRS不可达，不自动停止
+                    elif client_count > 1:
+                        should_stop = False  # 有观众，不停止
+
+                    if time.time() - video_start_time.get(vid_id, 0) < 60:
+                        should_stop = False
+
                     if should_stop:
-                        # 检查SRS是否有客户端连接
-                        # 使用publish_{vid_id}作为流名称
-                        client_count = await asyncio.to_thread(SRSUtil.check_stream_players, f'publish_{vid_id}')
-                        
-                        if client_count > 1:  # 有人观看（大于1是因为包含推流端自己），不关闭
-                            should_stop = False
-                    
-                    if should_stop:
-                        video_start_time.get(vid_id, 0)
-                        if time.time() - video_start_time.get(vid_id, 0) < 60:
-                            should_stop = False
-                            logger.info(f"视频 {vid_id} 最近10秒内有推流，保持运行")
-                    
-                    if should_stop:
-                        logger.info(f"视频 {vid_id} 无监听者且不在任务时间，发送停止指令")
+                        box_serial = new_device_status.get(vid_id, {}).get('serial') or '0004'
+                        logger.info(f"视频 {vid_id} 无监听者且不在任务时间，发送停止指令到盒子 {box_serial}")
                         # 发送停止消息
-                        algorithm_service = 'algorithm_0004'
+                        algorithm_service = f'algorithm_{box_serial}'
                         message_data = {
                             'vid_id': vid_id,
                             'serial': algorithm_service,
@@ -194,6 +245,7 @@ class PushVideoConfigRequest(BaseModel):
     vid_id: Optional[int] = Field(default=None, description='视频ID')
     vid_serial: Optional[str] = Field(default=None, description='视频序列号')
     vid_stream: Optional[str] = Field(default=None, description='视频流地址')
+    action: Optional[str] = Field(default=None, description='操作类型: start/update/stop，留空自动判断')
 
 
 async def message_callback(message: aio_pika.IncomingMessage):
@@ -209,6 +261,9 @@ async def message_callback(message: aio_pika.IncomingMessage):
 
         # logger.info(f"收到RabbitMQ消息[exchange:{message.exchange}][routing_key:{message.routing_key}]: {received_messages['type']}")
         if received_messages.get('type') == 'heartbeat':
+            return
+        elif received_messages.get('type') == 'box_register':
+            await save_box_register(received_messages)
             return
         elif received_messages.get('type') == 'alarm':
             # 创建消息副本用于日志打印（去除图片字段）
@@ -324,11 +379,41 @@ async def push_video_config(request: Request, push_request: PushVideoConfigReque
             msg = f'未找到ID为{push_request.vid_id}的视频信息' if push_request.vid_id else f'未找到序列号为{push_request.vid_serial}的视频信息'
             return ResponseUtil.error(msg=msg)
 
+        vid_id = video_detail.get('vidId') or video_detail.get('vid_id')
+        vid_serial = video_detail.get('vidSerial') or video_detail.get('vid_serial') or ''
+        vid_type = video_detail.get('vidType') or video_detail.get('vid_type') or 'rtsp'
+        vid_uri = video_detail.get('vidUri') or video_detail.get('vid_uri') or ''
+
         logger.info(video_detail)
+        resolved_bindings = AlgorithmRuntimeService.resolve_camera_algorithms(video_detail)
+        external_bindings = [binding for binding in resolved_bindings if binding.runtime_type == 'external_box']
+        runtime_bindings = []
         # 解析算法信息
         algorithms = []
-        if video_detail.get('vid_algorithm'):
-            vid_algorithm = video_detail['vid_algorithm']
+        if external_bindings:
+            for binding in external_bindings:
+                algorithm_code = binding.algorithm_code
+                if str(algorithm_code).isdigit():
+                    try:
+                        alg_detail = await AlgDao.get_alg_detail_by_id(db, int(algorithm_code))
+                        if alg_detail and alg_detail.alg_serial:
+                            algorithm_code = alg_detail.alg_serial
+                    except Exception as e:
+                        logger.warning(f"Query algorithm by ID {algorithm_code} failed: {e}")
+                algorithm_info = {'code': algorithm_code}
+                algorithm_info.update(binding.params)
+                algorithms.append(algorithm_info)
+                runtime_bindings.append(
+                    AlgorithmRuntimeService.create_external_box_binding(
+                        vid_id=binding.vid_id,
+                        algorithm_code=algorithm_code,
+                        algorithm_name=binding.algorithm_name,
+                        params=binding.params,
+                        priority=binding.priority,
+                    )
+                )
+        elif video_detail.get('vidAlgorithm') or video_detail.get('vid_algorithm'):
+            vid_algorithm = video_detail.get('vidAlgorithm') or video_detail.get('vid_algorithm')
 
             # 如果是字符串，尝试解析为JSON
             if isinstance(vid_algorithm, str):
@@ -384,7 +469,7 @@ async def push_video_config(request: Request, push_request: PushVideoConfigReque
         # import uuid
 
         # publish_path = str(uuid.uuid4()).replace('-', '')
-        publish_path = f'publish_{video_detail.get("vid_id")}'
+        publish_path = f'publish_{vid_id}'
 
         # 构建SRS取流地址（FLV格式）
         # 获取客户端访问的服务器地址和协议
@@ -393,25 +478,28 @@ async def push_video_config(request: Request, push_request: PushVideoConfigReque
         scheme = 'https' if request.url.scheme == 'https' else 'http'
         srs_flv_url = f'{scheme}://{SRSConfig.srs_flv_url}/live/{publish_path}.flv'
 
-        algorithm_service = 'algorithm_0004'
-        logger.info(f'{video_detail}')
+        vid_box_serial = video_detail.get('vidBoxSerial') or video_detail.get('vid_box_serial') or '0004'
+        algorithm_service = f'algorithm_{vid_box_serial}'
+        logger.info(f'camera {vid_id} → box {vid_box_serial} | {video_detail}')
         
-        if video_detail.get("vid_id") in device_status_cache:
+        if push_request.action:
+            action = push_request.action
+        elif vid_id in device_status_cache:
             action = 'update'
         else:
             action = 'start'
-            video_start_time[video_detail.get("vid_id")] = time.time()
+            video_start_time[vid_id] = time.time()
 
         # 构建推送消息格式
         message_data = {
-            'vid_id': video_detail.get("vid_id"),
-            'vid_serial': video_detail.get('vid_serial', ''),
+            'vid_id': vid_id,
+            'vid_serial': vid_serial,
             'serial': algorithm_service,
             'action': action,
             'stream': vid_stream,
             'algorithms': algorithms,
-            'stream_type': video_detail.get('vid_type', 'rtsp'),
-            'stream_url': video_detail.get('vid_uri', ''),
+            'stream_type': vid_type,
+            'stream_url': vid_uri,
             'publish_path': publish_path,
         }
 
@@ -420,18 +508,41 @@ async def push_video_config(request: Request, push_request: PushVideoConfigReque
 
         # 推送到消息队列
         await RabbitMQService.send_message(request.app, algorithm_service, message_json)
+        if action in {'start', 'update'}:
+            for binding in runtime_bindings:
+                algorithm_run_registry.start_run(
+                    binding,
+                    external_task_id=f'{publish_path}_{binding.algorithm_code}',
+                    status='waiting_box',
+                    error_message='等待外接盒子设备状态回调'
+                )
+        elif action == 'stop':
+            algorithm_run_registry.stop_camera_runs(vid_id)
 
         logger.info(f'成功推送视频配置到消息队列: {message_json}')
 
         # 构建接口返回数据，包含取流地址
         response_data = {
-            'serial': video_detail.get('vidSerial', ''),
+            'serial': vid_serial,
             'action': 'start',
             # "algorithms": algorithms,
             # "stream_type": video_detail.get('vidType', 'rtsp'),
             # "stream_url": video_detail.get('vidUri', ''),
             'publish_path': publish_path,
             'srs_flv_url': srs_flv_url,
+            'runs': [
+                {
+                    'runId': run.run_id,
+                    'vidId': run.vid_id,
+                    'algorithmCode': run.algorithm_code,
+                    'algorithmName': run.algorithm_name,
+                    'runtimeType': run.runtime_type,
+                    'status': run.status,
+                    'externalTaskId': run.external_task_id,
+                    'errorMessage': run.error_message,
+                }
+                for run in algorithm_run_registry.list_camera_runs(vid_id)
+            ],
         }
 
         return ResponseUtil.success(data=response_data, msg='视频配置推送成功')
@@ -502,3 +613,331 @@ async def get_device_status_cache(request: Request, vid_id: int = None):
     except Exception as e:
         logger.error(f'获取设备状态失败: {str(e)}')
         return ResponseUtil.error(msg=f'获取设备状态失败: {str(e)}')
+
+
+@commandController.get('/boxes', summary='获取在线盒子列表')
+@integration_log(
+    title='获取在线盒子列表',
+    system_name='徐州指令管理系统',
+    business_type=BusinessType.OTHER,
+)
+async def get_boxes(request: Request):
+    """获取已注册上线的盒子列表"""
+    now = datetime.now().timestamp()
+    online = {}
+    offline = {}
+    for serial, info in box_registry.items():
+        try:
+            last_seen = datetime.fromisoformat(info['last_seen']).timestamp()
+        except Exception:
+            last_seen = 0
+        if now - last_seen < 60:  # 60秒内有心跳视为在线
+            online[serial] = info
+        else:
+            offline[serial] = info
+    return ResponseUtil.success(data={
+        'online': list(online.values()),
+        'offline': list(offline.values()),
+        'online_count': len(online),
+        'total': len(box_registry),
+    })
+
+
+@commandController.get('/camera_stream_url/{vid_id}', summary='获取盒子摄像头实时流地址')
+async def camera_stream_url(vid_id: int, query_db: AsyncSession = Depends(get_db)):
+    """返回盒子本地 MJPEG 流地址，供前端 img 直接播放。"""
+    from module_xuzhou.service.video_service import VideoService
+
+    video = await VideoService.video_detail_services(query_db, vid_id)
+    if not video:
+        return ResponseUtil.error(msg='摄像头不存在')
+
+    box_serial = video.get('vidBoxSerial') or video.get('vid_box_serial')
+    if not box_serial:
+        return ResponseUtil.error(msg='摄像头未绑定盒子')
+
+    box = box_registry.get(str(box_serial))
+    if not box:
+        return ResponseUtil.error(msg='盒子不在线')
+
+    base_urls = build_box_base_urls(box)
+    if not base_urls:
+        return ResponseUtil.error(msg='盒子IP未知')
+
+    stream_urls = [f'{base_url}/cameras/{vid_id}/stream' for base_url in base_urls]
+    return ResponseUtil.success(data={
+        'vidId': vid_id,
+        'boxSerial': box_serial,
+        'streamUrl': stream_urls[0],
+        'streamUrls': stream_urls,
+    })
+
+
+@commandController.get('/camera_snapshot/{vid_id}', summary='获取摄像头实时快照')
+async def camera_snapshot(vid_id: int, query_db: AsyncSession = Depends(get_db)):
+    """通过盒子本地API获取摄像头快照，返回JPEG图片"""
+    from module_xuzhou.service.video_service import VideoService
+
+    video = await VideoService.video_detail_services(query_db, vid_id)
+    if not video:
+        return ResponseUtil.error(msg='摄像头不存在')
+
+    box_serial = video.get('vidBoxSerial') or video.get('vid_box_serial')
+    if not box_serial:
+        return ResponseUtil.error(msg='摄像头未绑定盒子')
+
+    box = box_registry.get(str(box_serial))
+    if not box:
+        return ResponseUtil.error(msg='盒子不在线')
+
+    base_urls = build_box_base_urls(box)
+    if not base_urls:
+        return ResponseUtil.error(msg='盒子IP未知')
+
+    import httpx
+    last_error = ''
+    for base_url in base_urls:
+        snapshot_url = f'{base_url}/cameras/{vid_id}/snapshot'
+        logger.info(f'获取摄像头快照: vid_id={vid_id}, box_serial={box_serial}, url={snapshot_url}')
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(snapshot_url)
+            if resp.status_code == 200:
+                from starlette.responses import Response
+                logger.info(f'获取摄像头快照成功: vid_id={vid_id}, box_serial={box_serial}, url={snapshot_url}')
+                return Response(content=resp.content, media_type="image/jpeg")
+            last_error = f'盒子返回错误: {resp.status_code}'
+            logger.warning(f'获取摄像头快照失败: vid_id={vid_id}, box_serial={box_serial}, url={snapshot_url}, status={resp.status_code}, body={resp.text[:200]}')
+        except Exception as e:
+            last_error = str(e)
+            logger.exception(f'连接盒子快照接口失败: vid_id={vid_id}, box_serial={box_serial}, url={snapshot_url}')
+
+    return ResponseUtil.error(
+        msg='无法连接盒子本地服务，请检查盒子服务、网络和端口',
+        data={
+            'vidId': vid_id,
+            'boxSerial': box_serial,
+            'triedUrls': [f'{base_url}/cameras/{vid_id}/snapshot' for base_url in base_urls],
+            'detail': last_error,
+        },
+    )
+
+
+# ── 本地服务器摄像头（无盒子）──────────────────────────────────────────
+
+@commandController.get('/local_camera/start/{vid_id}', summary='启动本地摄像头采集')
+async def local_camera_start(vid_id: int, query_db: AsyncSession = Depends(get_db)):
+    """对未绑定盒子的摄像头启动 OpenCV 本地采集。"""
+    from module_xuzhou.service.video_service import VideoService
+    from module_xuzhou.service.local_camera_service import local_camera_manager
+
+    video = await VideoService.video_detail_services(query_db, vid_id)
+    if not video:
+        return ResponseUtil.error(msg='摄像头不存在')
+
+    vid_box_serial = video.get('vidBoxSerial') or video.get('vid_box_serial') or ''
+    if vid_box_serial:
+        return ResponseUtil.error(msg='盒子摄像头请使用 /push_video_config 启动')
+
+    if local_camera_manager.running(vid_id):
+        return ResponseUtil.success(data=local_camera_manager.get_status(vid_id), msg='摄像头已在运行')
+
+    source = video.get('vidUri') or video.get('vid_uri') or '0'
+    stream_type = video.get('vidType') or video.get('vid_type') or 'usb'
+    err = local_camera_manager.start_camera(vid_id, str(source), stream_type)
+    if err:
+        return ResponseUtil.error(msg=err)
+
+    return ResponseUtil.success(data=local_camera_manager.get_status(vid_id), msg='本地摄像头采集已启动')
+
+
+@commandController.get('/local_camera/stop/{vid_id}', summary='停止本地摄像头采集')
+async def local_camera_stop(vid_id: int):
+    from module_xuzhou.service.local_camera_service import local_camera_manager
+    local_camera_manager.stop_camera(vid_id)
+    return ResponseUtil.success(msg='本地摄像头采集已停止')
+
+
+@commandController.get('/local_camera/status/{vid_id}', summary='本地摄像头采集状态')
+async def local_camera_status(vid_id: int):
+    from module_xuzhou.service.local_camera_service import local_camera_manager
+    return ResponseUtil.success(data=local_camera_manager.get_status(vid_id))
+
+
+@commandController.get('/local_camera/snapshot/{vid_id}', summary='本地摄像头实时快照')
+async def local_camera_snapshot(vid_id: int):
+    """获取本地服务器摄像头的 JPEG 快照。"""
+    from module_xuzhou.service.local_camera_service import local_camera_manager
+    from starlette.responses import Response
+
+    if not local_camera_manager.running(vid_id):
+        return ResponseUtil.error(msg='本地摄像头未运行，请先启动')
+
+    frame = local_camera_manager.get_snapshot(vid_id)
+    if frame is None:
+        return ResponseUtil.error(msg='摄像头暂未读取到画面')
+
+    ok, jpeg = cv2.imencode(".jpg", frame)
+    if not ok:
+        return ResponseUtil.error(msg='快照编码失败')
+    return Response(content=jpeg.tobytes(), media_type="image/jpeg",
+                    headers={"Cache-Control": "no-cache"})
+
+
+@commandController.get('/local_camera/stream_url/{vid_id}', summary='本地摄像头实时流地址')
+async def local_camera_stream_url(vid_id: int, request: Request):
+    """返回本地服务器摄像头的 MJPEG 流地址，供前端 img 直接播放。"""
+    from module_xuzhou.service.local_camera_service import local_camera_manager
+
+    if not local_camera_manager.running(vid_id):
+        return ResponseUtil.error(msg='本地摄像头未运行，请先启动')
+
+    scheme = 'https' if request.url.scheme == 'https' else 'http'
+    host = request.headers.get('host', '127.0.0.1:9099')
+    stream_url = f'{scheme}://{host}/xuzhou/command/local_camera/stream/{vid_id}'
+    return ResponseUtil.success(data={
+        'vidId': vid_id,
+        'streamUrl': stream_url,
+    })
+
+
+@localStreamController.get('/local_camera/stream/{vid_id}', summary='本地摄像头MJPEG视频流')
+async def local_camera_stream(vid_id: int):
+    """MJPEG 流式输出本地摄像头画面。"""
+    from module_xuzhou.service.local_camera_service import local_camera_manager
+    from starlette.responses import StreamingResponse
+
+    if not local_camera_manager.running(vid_id):
+        return ResponseUtil.error(msg='本地摄像头未运行')
+
+    async def generate():
+        import asyncio as aio
+        last_frame_idx = -1
+        while local_camera_manager.running(vid_id):
+            frame, idx = local_camera_manager.get_snapshot_with_idx(vid_id)
+            if frame is not None and idx != last_frame_idx:
+                last_frame_idx = idx
+                data = await aio.to_thread(_encode_jpeg, frame)
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
+                       b"Content-Length: " + str(len(data)).encode() +
+                       b"\r\n\r\n" + data + b"\r\n")
+            await aio.sleep(0.04)
+
+    return StreamingResponse(
+        generate(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+# ── 摄像头列表模型 ──────────────────────────────────────────────────────
+
+class CameraListItem(BaseModel):
+    vid_id: Optional[int] = Field(default=None, description='视频/摄像头ID')
+    vid_name: Optional[str] = Field(default=None, description='名称')
+    vid_serial: Optional[str] = Field(default=None, description='序列号')
+    vid_type: Optional[str] = Field(default=None, description='类型')
+    vid_scene_name: Optional[str] = Field(default=None, description='场景名称')
+    vid_algorithm_name: Optional[list[str]] = Field(default_factory=list, description='算法名称列表')
+    vid_uri: Optional[str] = Field(default=None, description='视频流地址')
+    status: str = Field(default='stopped', description='运行状态: running/stopped/error')
+    start_time: Optional[Any] = Field(default=None, description='启动时间')
+    update_time: Optional[str] = Field(default=None, description='状态更新时间')
+    srs_flv_url: Optional[str] = Field(default=None, description='SRS FLV拉流地址')
+
+
+class CameraListResponse(BaseModel):
+    total: int = Field(default=0, description='总数')
+    running_count: int = Field(default=0, description='运行中数量')
+    stopped_count: int = Field(default=0, description='已停止数量')
+    cameras: list[CameraListItem] = Field(default_factory=list, description='摄像头列表')
+
+
+@commandController.get('/camera_list', summary='获取摄像头列表（含运行状态）')
+@integration_log(
+    title='获取摄像头列表',
+    system_name='徐州指令管理系统',
+    business_type=BusinessType.OTHER,
+)
+async def get_camera_list(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """获取所有配置的摄像头及其运行状态，供多路并行操作选择"""
+    try:
+        cleanup_old_device_status()
+
+        from module_xuzhou.entity.vo.video_vo import VideoPageQueryModel
+        from module_xuzhou.dao.video_dao import VideoDao
+        from config.env import SRSConfig
+
+        query_model = VideoPageQueryModel(page_num=1, page_size=9999)
+        video_list_result = await VideoDao.get_video_list(db, query_model, is_page=False)
+
+        video_rows: list[dict[str, Any]] = []
+        if hasattr(video_list_result, 'rows'):
+            video_rows = video_list_result.rows
+        elif isinstance(video_list_result, list):
+            video_rows = video_list_result
+
+        scheme = 'https' if request.url.scheme == 'https' else 'http'
+        running_count = 0
+        stopped_count = 0
+        cameras: list[dict[str, Any]] = []
+
+        for v in video_rows:
+            vid_id = v.get('vidId') or v.get('vid_id')
+            vid_serial = v.get('vidSerial') or v.get('vid_serial')
+
+            # 解析算法名列表
+            alg_names: list[str] = []
+            raw_alg = v.get('vidAlgorithmName') or v.get('vid_algorithm_name') or ''
+            if isinstance(raw_alg, str):
+                try:
+                    parsed = json.loads(raw_alg)
+                    alg_names = parsed if isinstance(parsed, list) else [raw_alg]
+                except (json.JSONDecodeError, TypeError):
+                    alg_names = [raw_alg]
+            elif isinstance(raw_alg, list):
+                alg_names = raw_alg
+
+            # 获取运行状态
+            device_info = device_status_cache.get(vid_id, {})
+            status = device_info.get('status', 'stopped')
+            start_time = device_info.get('start_time')
+            update_time = device_info.get('update_time')
+
+            if status == 'running':
+                running_count += 1
+            else:
+                stopped_count += 1
+
+            srs_flv_url = f'{scheme}://{SRSConfig.srs_flv_url}/live/publish_{vid_id}.flv'
+
+            cameras.append({
+                'vidId': vid_id,
+                'vidName': v.get('vidName') or v.get('vid_name'),
+                'vidSerial': vid_serial,
+                'vidType': v.get('vidType') or v.get('vid_type'),
+                'vidSceneName': v.get('vidSceneName') or v.get('vid_scene_name'),
+                'vidAlgorithmName': alg_names,
+                'vidUri': v.get('vidUri') or v.get('vid_uri'),
+                'status': status,
+                'startTime': start_time,
+                'updateTime': update_time,
+                'srsFlvUrl': srs_flv_url,
+            })
+
+        return ResponseUtil.success(
+            data={
+                'total': len(cameras),
+                'runningCount': running_count,
+                'stoppedCount': stopped_count,
+                'cameras': cameras,
+            },
+            msg='获取摄像头列表成功',
+        )
+
+    except Exception as e:
+        logger.error(f'获取摄像头列表失败: {str(e)}')
+        return ResponseUtil.error(msg=f'获取摄像头列表失败: {str(e)}')

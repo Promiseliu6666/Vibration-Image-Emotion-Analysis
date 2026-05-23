@@ -1078,8 +1078,12 @@ create table xuzhou_alg (
     alg_serial varchar(100) default null,
     alg_common varchar(1000) default null,
     alg_default_conf varchar(2000) default null,
+    alg_weight_path varchar(500) default null,
+    alg_runtime_type varchar(50) not null default 'external_box',
+    alg_enabled boolean not null default true,
     alg_update_time timestamp(0),
-    primary key (alg_id)
+    primary key (alg_id),
+    constraint uk_xuzhou_alg_serial_version unique (alg_serial, alg_version)
 );
 comment on column xuzhou_alg.alg_id is '算法ID';
 comment on column xuzhou_alg.alg_name is '算法名称';
@@ -1087,5 +1091,13 @@ comment on column xuzhou_alg.alg_version is '算法版本';
 comment on column xuzhou_alg.alg_serial is '算法序列号';
 comment on column xuzhou_alg.alg_common is '算法通用字段';
 comment on column xuzhou_alg.alg_default_conf is '算法默认配置(JSON字符串)';
+comment on column xuzhou_alg.alg_weight_path is '算法权重文件路径';
+comment on column xuzhou_alg.alg_runtime_type is '运行位置: local/external_box';
+comment on column xuzhou_alg.alg_enabled is '是否启用';
 comment on column xuzhou_alg.alg_update_time is '更新时间';
 comment on table xuzhou_alg is '徐州算法信息表';
+
+insert into xuzhou_alg values(1, '人脸检测', 'v1', 'face_detection', null, '{"proto_path":"algorithm/model/face_detection/v1/deploy.prototxt","confidence":0.55}', 'algorithm/model/face_detection/v1/res10_300x300_ssd_iter_140000.caffemodel', 'local', true, current_timestamp);
+insert into xuzhou_alg values(2, '人脸特征识别', 'v1', 'arcface_recognition', null, '{}', 'algorithm/model/arcface_recognition/v1/w600k_r50.onnx', 'local', true, current_timestamp);
+insert into xuzhou_alg values(3, '实时人脸幸福指数分析', 'v1', 'realtime_face_analysis', null, '{"face_detection":"face_detection:v1","face_recognition":"arcface_recognition:v1"}', null, 'local', true, current_timestamp);
+select setval(pg_get_serial_sequence('xuzhou_alg', 'alg_id'), (select max(alg_id) from xuzhou_alg));

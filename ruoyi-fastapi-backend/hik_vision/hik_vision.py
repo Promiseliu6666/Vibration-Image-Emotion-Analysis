@@ -4,10 +4,10 @@ import numpy as np
 import os
 import urllib.request
 import time
-import base64
 import asyncio
 import traceback
 import subprocess
+from typing import Optional
 from datetime import datetime
 from fastapi import APIRouter, Query, HTTPException, Depends
 from fastapi.responses import StreamingResponse
@@ -15,11 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from hik_vision.Vibration_image_algorithm import VibraimageCore
 from config.get_db import get_db
+from config.database import AsyncSessionLocal
 from module_xuzhou.service.people_service import PeopleService
+from module_xuzhou.service.video_service import VideoService
 from module_xuzhou.dao.analysis_dao import BinhuaAnalysisDao
 from module_xuzhou.entity.vo.analysis_vo import BinhuaAnalysisModel
-
+from algorithm.runtime_service import AlgorithmRuntimeService, algorithm_run_registry
 from hik_vision.email_service import send_analysis_email
+from hik_vision.local_video_analysis import LocalVideoAnalysisCapabilities
 
 videoController = APIRouter(
     prefix='/video',
@@ -31,9 +34,51 @@ RTSP_URL = "rtsp://admin:witai515@192.168.3.6:554/main/h264/av_stream"
 LOCAL_CAMERA_INDEX = 1
 SIMILARITY_THRESHOLD = 0.4
 
+# Dynamic camera config overrides (set from DB-registered cameras)
+_camera_config_override: dict = {}
+_camera_configs: dict = {}
+
+
+def get_camera_key(vid_id: int = None, source: str = None) -> str:
+    if vid_id is not None:
+        return f"vid_{vid_id}"
+    return source
+def _set_camera_config(local_index: int = None, rtsp_url: str = None):
+    """Dynamically override camera configuration from database-registered cameras."""
+    if local_index is not None:
+        _camera_config_override["local_index"] = local_index
+    if rtsp_url is not None:
+        _camera_config_override["rtsp_url"] = rtsp_url
+
+
+async def _resolve_source_from_db(query_db: AsyncSession, vid_id: int) -> str:
+    """Resolve a database camera ID to a source type ('local' or 'rtsp') and set camera config."""
+    from module_xuzhou.entity.do.video_do import XuzhouVideo
+    from sqlalchemy import select
+
+    result = await query_db.execute(select(XuzhouVideo).where(XuzhouVideo.vid_id == vid_id))
+    camera = result.scalars().first()
+    if not camera:
+        raise HTTPException(status_code=404, detail=f"摄像头不存在: vid_id={vid_id}")
+
+    vid_type = (camera.vid_type or "").lower()
+    vid_uri = (camera.vid_uri or "").strip()
+    camera_key = get_camera_key(vid_id=vid_id)
+
+    if vid_type == "local":
+        try:
+            local_index = int(vid_uri)
+        except (ValueError, TypeError):
+            local_index = 1
+        _camera_configs[camera_key] = {"source": "local", "local_index": local_index}
+        return "local"
+
+    _camera_configs[camera_key] = {"source": "rtsp", "rtsp_url": vid_uri}
+    return "rtsp"
+
 # ==================== DNN 模型 ====================
-MODEL_PROTO = "deploy.prototxt"
-MODEL_WEIGHTS = "res10_300x300_ssd_iter_140000.caffemodel"
+MODEL_PROTO = os.path.join("algorithm", "model", "face_detection", "v1", "deploy.prototxt")
+MODEL_WEIGHTS = os.path.join("algorithm", "model", "face_detection", "v1", "res10_300x300_ssd_iter_140000.caffemodel")
 
 MODEL_PROTO_URL = "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt"
 MODEL_WEIGHTS_URL = "https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel"
@@ -64,16 +109,16 @@ except Exception as e:
 VIDEO_SAVE_DIR = "videos"
 os.makedirs(VIDEO_SAVE_DIR, exist_ok=True)
 
-video_writers = {"local": None, "rtsp": None}
-video_start_times = {"local": None, "rtsp": None}
+video_writers = {}
+video_start_times = {}
 
 RECORD_FPS = 20.0
 RECORD_DURATION = 10.0
 
 # ==================== 优化参数 ====================
-FACE_DETECT_INTERVAL = 6
-RECOGNIZE_INTERVAL = 20
-ANALYSIS_INTERVAL = 4
+FACE_DETECT_INTERVAL = 10
+RECOGNIZE_INTERVAL = 30
+ANALYSIS_INTERVAL = 10
 STABLE_FRAMES_REQUIRED = 15
 TOLERANCE = 60
 LOST_CHECK_INTERVAL = 20
@@ -84,10 +129,12 @@ RECOGNIZE_MIN_GAP_SECONDS = 2.5
 face_compare_semaphore = asyncio.Semaphore(1)
 
 
-def get_camera_cap(source: str):
+def get_camera_cap(source: str, camera_key: str = None):
+    config = _camera_configs.get(camera_key or source, {})
     if source == "local":
-        print("[视频流] 使用本地摄像头")
-        cap = cv2.VideoCapture(LOCAL_CAMERA_INDEX, cv2.CAP_DSHOW)
+        local_index = config.get("local_index", _camera_config_override.get("local_index", LOCAL_CAMERA_INDEX))
+        print(f"[视频流] 使用本地摄像头 index={local_index}")
+        cap = cv2.VideoCapture(local_index, cv2.CAP_DSHOW)
         if not cap.isOpened():
             cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 
@@ -107,13 +154,14 @@ def get_camera_cap(source: str):
         raise HTTPException(status_code=500, detail="本地摄像头无法打开")
 
     elif source == "rtsp":
-        if not RTSP_URL.strip():
+        rtsp_url = config.get("rtsp_url", _camera_config_override.get("rtsp_url", RTSP_URL))
+        if not rtsp_url.strip():
             raise HTTPException(status_code=500, detail="RTSP地址未配置")
-        print(f"[视频流] 使用RTSP摄像头 {RTSP_URL}")
+        print(f"[视频流] 使用RTSP摄像头 {rtsp_url}")
 
         os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;tcp|timeout;5000000'
 
-        cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
+        cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         cap.set(cv2.CAP_PROP_FPS, 30)
@@ -134,32 +182,14 @@ def get_camera_cap(source: str):
         raise HTTPException(status_code=400, detail="无效的source参数")
 
 
-global_caps = {"local": None, "rtsp": None}
-active_clients = {"local": 0, "rtsp": 0}
+global_caps = {}
+active_clients = {}
+latest_results = {}
+stable_state = {}
 
-latest_results = {
-    "local": {f"e{i}": 0.0 for i in range(1, 15)},
-    "rtsp": {f"e{i}": 0.0 for i in range(1, 15)}
-}
 
-stable_state = {
-    "local": {
-        "stable_count": 0, "prev_center": None, "prev_size": None,
-        "locked_rect": None, "analyzing": False, "frame_count": 0,
-        "matched_person": None, "feature_extracted": False,
-        "match_similarity": 0.0,
-        "last_detected_rect": None,
-        "identified": False,
-        "analysis_start_time": None,
-        "analysis_duration": RECORD_DURATION,
-        "analysis_completed": False,
-        "person_id": "",
-        "current_video_path": None,
-        "video_frame_count": 0,
-        "recognizing": False,
-        "last_recognize_at": 0.0
-    },
-    "rtsp": {
+def _new_analysis_state() -> dict:
+    return {
         "stable_count": 0, "prev_center": None, "prev_size": None,
         "locked_rect": None, "analyzing": False, "frame_count": 0,
         "matched_person": None, "feature_extracted": False,
@@ -175,12 +205,21 @@ stable_state = {
         "recognizing": False,
         "last_recognize_at": 0.0
     }
-}
+
+
+def ensure_camera_state(camera_key: str) -> dict:
+    global_caps.setdefault(camera_key, None)
+    active_clients.setdefault(camera_key, 0)
+    latest_results.setdefault(camera_key, {f"e{i}": 0.0 for i in range(1, 15)})
+    stable_state.setdefault(camera_key, _new_analysis_state())
+    video_writers.setdefault(camera_key, None)
+    video_start_times.setdefault(camera_key, None)
+    return stable_state[camera_key]
 
 
 async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, results: dict, video_path: str = None):
     try:
-        person_id = state.get("person_id")
+        person_id = state.get("person_id") or None
         person_name = state.get("matched_person") or "Unknown"
 
         happiness_index = results.get("e12", 0.0)
@@ -225,9 +264,14 @@ async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, result
         return None
 
 
-def reset_analysis_state(source: str):
-    if source in stable_state:
-        state = stable_state[source]
+async def persist_analysis_result(source: str, state: dict, results: dict, video_path: str = None):
+    async with AsyncSessionLocal() as db:
+        return await save_analysis_to_db(db, source, state, results, video_path)
+
+
+def reset_analysis_state(camera_key: str):
+    if camera_key in stable_state:
+        state = stable_state[camera_key]
         state.update({
             "stable_count": 0, "prev_center": None, "prev_size": None,
             "locked_rect": None, "analyzing": False, "frame_count": 0,
@@ -244,15 +288,43 @@ def reset_analysis_state(source: str):
             "last_recognize_at": 0.0
         })
 
-        if video_writers.get(source) is not None:
+        if video_writers.get(camera_key) is not None:
             try:
-                video_writers[source].release()
+                video_writers[camera_key].release()
             except Exception as e:
-                print(f"[{source}] release异常: {e}")
-            video_writers[source] = None
-        video_start_times[source] = None
+                print(f"[{camera_key}] release异常: {e}")
+            video_writers[camera_key] = None
+        video_start_times[camera_key] = None
 
-        latest_results[source] = {f"e{i}": 0.0 for i in range(1, 15)}
+        latest_results[camera_key] = {f"e{i}": 0.0 for i in range(1, 15)}
+
+
+def get_recognition_face_rect(face_rect: tuple | None, state: dict) -> tuple | None:
+    return face_rect or state.get("last_detected_rect")
+
+
+def can_schedule_face_recognition(
+    recognition_rect: tuple | None,
+    state: dict,
+    local_capabilities: LocalVideoAnalysisCapabilities,
+    analysis_count: int,
+    now: float,
+) -> bool:
+    return (
+        recognition_rect is not None
+        and local_capabilities.enable_face_recognition
+        and not state["identified"]
+        and not state.get("recognizing", False)
+        and analysis_count % RECOGNIZE_INTERVAL == 0
+        and (now - float(state.get("last_recognize_at", 0.0))) >= RECOGNIZE_MIN_GAP_SECONDS
+    )
+
+
+def get_display_face_rect(source: str, rect: tuple, frame_width: int) -> tuple:
+    if source != "local" or rect is None:
+        return rect
+    x, y, w, h = rect
+    return frame_width - x - w, y, w, h
 
 
 def draw_face_recognition(frame: np.ndarray, name: str, similarity: float, rect: tuple, is_locked: bool = False,
@@ -308,9 +380,9 @@ def detect_face(frame: np.ndarray):
         return None
 
 
-def encode_face_image(frame: np.ndarray, face_rect: tuple) -> str:
+def prepare_face_crop(frame: np.ndarray, face_rect: tuple) -> Optional[np.ndarray]:
     """
-    Crop and downscale face area before base64 encoding.
+    Crop face region, downscale it for faster inference, and convert to RGB.
     """
     if face_rect is not None:
         x, y, w, h = face_rect
@@ -323,6 +395,8 @@ def encode_face_image(frame: np.ndarray, face_rect: tuple) -> str:
         cropped = frame[y1:y2, x1:x2]
         if cropped.size > 0:
             frame = cropped
+        else:
+            return None
 
     h, w = frame.shape[:2]
     max_side = max(h, w)
@@ -330,50 +404,87 @@ def encode_face_image(frame: np.ndarray, face_rect: tuple) -> str:
         scale = 320.0 / max_side
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
-    _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
-    return base64.b64encode(buffer).decode('utf-8')
+    return frame
+
+
+
+
+async def apply_recognition_match(
+    name: str,
+    face_rect: tuple,
+    state: dict,
+    analyzer,
+    local_capabilities: LocalVideoAnalysisCapabilities,
+):
+    if not name or name == "Unknown":
+        return
+    state["locked_rect"] = face_rect
+
+
+async def start_happiness_analysis_if_ready(
+    state: dict,
+    analyzer,
+    local_capabilities: LocalVideoAnalysisCapabilities,
+):
+    if not local_capabilities.enable_happiness_analysis or state["analyzing"]:
+        return
+    face_rect = state.get("locked_rect") or state.get("last_detected_rect")
+    if face_rect is None:
+        return
+    state["locked_rect"] = tuple(face_rect)
+    state["analyzing"] = True
+    state["analysis_start_time"] = time.time()
+    await asyncio.to_thread(analyzer.reset)
 
 
 async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, state: dict):
     try:
-        current_image_base64 = await asyncio.to_thread(encode_face_image, frame, face_rect)
+        face_crop = await asyncio.to_thread(prepare_face_crop, frame, face_rect)
+        if face_crop is None:
+            state["person_id"] = ""
+            state["matched_person"] = "Unknown"
+            state["identified"] = False
+            return "Unknown", 0.0
 
-        async with face_compare_semaphore:
-            compare_results = await asyncio.wait_for(
-                PeopleService.face_compare_services(
-                    db, current_image_base64, group_id=1, threshold=SIMILARITY_THRESHOLD
-                ),
-                timeout=RECOGNIZE_TIMEOUT
-            )
+        async with AsyncSessionLocal() as recognition_db:
+            compare_results = [{}]
+            async with face_compare_semaphore:
+                compare_results = await asyncio.wait_for(
+                    PeopleService.face_compare_by_face_crop_services(
+                        recognition_db, face_crop, group_id=1, threshold=SIMILARITY_THRESHOLD
+                    ),
+                    timeout=RECOGNIZE_TIMEOUT
+                )
 
-        if compare_results and compare_results[0]:
-            best_match = compare_results[0]
-            name = best_match.get('name')
-            similarity = best_match.get('similarity', 0.0)
+            if compare_results and compare_results[0]:
+                best_match = compare_results[0]
+                name = best_match.get('name')
+                similarity = best_match.get('similarity', 0.0)
 
-            if name and name != "Unknown":
-                try:
-                    from module_xuzhou.entity.do.people_do import PeopleFace
-                    from sqlalchemy import select
-                    result = await db.execute(
-                        select(PeopleFace)
-                        .where(
-                            PeopleFace.name == name,
-                            PeopleFace.group_id == 1,
-                            PeopleFace.is_deleted == False
+                if name and name != "Unknown":
+                    try:
+                        from module_xuzhou.entity.do.people_do import PeopleFace
+                        from sqlalchemy import select
+                        result = await recognition_db.execute(
+                            select(PeopleFace)
+                            .where(
+                                PeopleFace.name == name,
+                                PeopleFace.group_id == 1,
+                                PeopleFace.is_deleted == False
+                            )
+                            .limit(1)
                         )
-                        .limit(1)
-                    )
-                    person = result.scalars().first()
-                    if person:
-                        state["person_id"] = person.id
-                        state["matched_person"] = person.name
-                        state["identified"] = True
-                        state["match_similarity"] = similarity
-                        print(f"[人脸识别] 成功匹配数据库具体人员: {person.name} (ID: {person.id})")
-                        return person.name, similarity
-                except Exception as e:
-                    print(f"[人脸识别] 查询person_id异常: {e}")
+                        person = result.scalars().first()
+                        if person:
+                            state["person_id"] = person.id
+                            state["matched_person"] = person.name
+                            state["identified"] = True
+                            state["match_similarity"] = similarity
+                            print(f"[人脸识别] 成功匹配数据库具体人员: {person.name} (ID: {person.id})")
+                            return person.name, similarity
+                    except Exception as e:
+                        print(f"[人脸识别] 查询person_id异常: {e}")
+                        await recognition_db.rollback()
 
         state["person_id"] = ""
         state["matched_person"] = "Unknown"
@@ -391,30 +502,231 @@ async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, 
 # ==================== 主视频流函数（已包含ffmpeg转码后删除AVI功能） ====================
 @videoController.get("/feed/analysis")
 async def generate_video_stream(
-        source: str = Query(default='local'),
+        source: str = Query(default=None),
+        vid_id: int = Query(default=None),
         query_db: AsyncSession = Depends(get_db)
 ):
-    if source not in ["local", "rtsp"]:
+    if vid_id is not None:
+        source = await _resolve_source_from_db(query_db, vid_id)
+    elif source not in ["local", "rtsp"]:
         raise HTTPException(status_code=400, detail="无效的source参数")
 
-    active_clients[source] += 1
-    print(f"[{source}] 新客户端连接，当前活跃客户端数: {active_clients[source]}")
+    camera_key = get_camera_key(vid_id=vid_id, source=source)
+    video_detail = None
+    local_analysis_enabled = source in ["local", "rtsp"] and vid_id is None
+    local_capabilities = (
+        LocalVideoAnalysisCapabilities.default_enabled()
+        if local_analysis_enabled
+        else LocalVideoAnalysisCapabilities(
+            enable_local_worker=False,
+            enable_face_detection=False,
+            enable_face_recognition=False,
+            enable_happiness_analysis=False,
+        )
+    )
+    if vid_id is not None:
+        video_detail = await VideoService.video_detail_services(query_db, vid_id)
+        local_capabilities = LocalVideoAnalysisCapabilities.from_video_detail(video_detail)
+        local_analysis_enabled = local_capabilities.enable_local_worker
+        for binding in [
+            binding
+            for binding in AlgorithmRuntimeService.resolve_camera_algorithms(video_detail)
+            if binding.runtime_type == "local"
+        ]:
+            algorithm_run_registry.start_run(binding)
+    print(
+        f"[实时分析] camera_key={camera_key}, source={source}, vid_id={vid_id}, "
+        f"capabilities={local_capabilities}"
+    )
+    state = ensure_camera_state(camera_key)
+    active_clients[camera_key] += 1
+    print(f"[{camera_key}] 新客户端连接，当前活跃客户端数: {active_clients[camera_key]}")
 
-    if global_caps[source] is None:
-        global_caps[source] = get_camera_cap(source)
+    if global_caps[camera_key] is None:
+        global_caps[camera_key] = get_camera_cap(source, camera_key)
 
-    cap = global_caps[source]
-    state = stable_state[source]
+    cap = global_caps[camera_key]
     analyzer = VibraimageCore()
     analyzer.halo_params["ACCUMULATE_FRAMES"] = 5
 
-    async def generate():
-        frame_count = 0
-        last_frame_time = time.time()
-        recognize_task = None
+    # 共享帧缓冲：analysis_worker 通过此变量获取最新帧（Python 引用赋值是原子的）
+    _shared_frame = None
+    _analysis_task = None
 
+    async def analysis_worker():
+        """后台独立任务：处理所有耗时计算（人脸检测/识别/振动分析/录制），不阻塞 MJPEG 流"""
+        analysis_count = 0
+        recognize_task = None
         try:
-            while active_clients[source] > 0:
+            while active_clients[camera_key] > 0:
+                frame = _shared_frame
+                if frame is None:
+                    await asyncio.sleep(0.02)
+                    continue
+
+                analysis_count += 1
+
+                # ---- 人脸检测 + 稳定性追踪 ----
+                face_rect = None
+                if state["analyzing"] and state["locked_rect"] is not None:
+                    face_rect = state["locked_rect"]
+                elif local_capabilities.enable_face_detection and analysis_count % FACE_DETECT_INTERVAL == 0:
+                    face_rect = await asyncio.to_thread(detect_face, frame)
+                    if face_rect is not None:
+                        state["last_detected_rect"] = face_rect
+                        x, y, w, h = face_rect
+                        center = (x + w // 2, y + h // 2)
+                        size = (w, h)
+                        if state["prev_center"] is not None:
+                            center_dist = np.linalg.norm(np.array(center) - np.array(state["prev_center"]))
+                            size_dist = np.linalg.norm(np.array(size) - np.array(state["prev_size"]))
+                            if center_dist < TOLERANCE and size_dist < TOLERANCE:
+                                state["stable_count"] += 1
+                            else:
+                                state["stable_count"] = 0
+                        else:
+                            state["stable_count"] = 1
+                        state["prev_center"] = center
+                        state["prev_size"] = size
+
+                # ---- 分析中：人脸丢失检测 ----
+                if (state["analyzing"] and local_capabilities.enable_face_detection and
+                    analysis_count % LOST_CHECK_INTERVAL == 0):
+                    current_detect = await asyncio.to_thread(detect_face, frame)
+                    if current_detect is None:
+                        print(f"[{source}] 人脸丢失，重置")
+                        reset_analysis_state(camera_key)
+                        await asyncio.to_thread(analyzer.reset)
+                        face_rect = None
+
+                # ---- 人脸识别任务管理 ----
+                if recognize_task is not None and recognize_task.done():
+                    try:
+                        recognize_task.result()
+                    except Exception:
+                        pass
+                    recognize_task = None
+
+                recognition_rect = get_recognition_face_rect(face_rect, state)
+                can_recognize = can_schedule_face_recognition(
+                    recognition_rect=recognition_rect,
+                    state=state,
+                    local_capabilities=local_capabilities,
+                    analysis_count=analysis_count,
+                    now=time.time(),
+                )
+                if can_recognize:
+                    print(f"[人脸识别调度] camera_key={camera_key}, rect={recognition_rect}, analysis_count={analysis_count}")
+                    state["recognizing"] = True
+                    state["last_recognize_at"] = time.time()
+                    frame_snap = frame.copy()
+                    rect_snap = tuple(recognition_rect)
+
+                    async def _do_recognize(fr, rc):
+                        try:
+                            name, _sim = await recognize_face(query_db, fr, rc, state)
+                            await apply_recognition_match(name, rc, state, analyzer, local_capabilities)
+                        except Exception:
+                            pass
+                        finally:
+                            state["recognizing"] = False
+
+                    recognize_task = asyncio.create_task(_do_recognize(frame_snap, rect_snap))
+
+                await start_happiness_analysis_if_ready(state, analyzer, local_capabilities)
+
+                # ---- 振动分析 ----
+                if (state["analyzing"] and not state["analysis_completed"] and
+                    analysis_count % ANALYSIS_INTERVAL == 0 and
+                    local_capabilities.enable_happiness_analysis):
+                    try:
+                        results = await asyncio.to_thread(
+                            analyzer.process_frame, frame, face_rect=face_rect, fps=30
+                        )
+                        if results:
+                            latest_results[camera_key].update(results)
+                    except Exception:
+                        pass
+
+                # ---- 视频录制管理 ----
+                if (state["analyzing"] and not state["analysis_completed"] and
+                    local_capabilities.enable_happiness_analysis):
+
+                    if video_writers[camera_key] is None and state["analysis_start_time"] is not None:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        person_id_str = str(state.get('person_id') or 'unknown')
+                        video_filename = f"{timestamp}_{source}_{person_id_str}.mp4"
+                        video_full_path = os.path.join(VIDEO_SAVE_DIR, video_filename)
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        video_writers[camera_key] = await asyncio.to_thread(
+                            cv2.VideoWriter, video_full_path, fourcc, RECORD_FPS, (640, 480)
+                        )
+                        video_start_times[camera_key] = time.time()
+                        state["current_video_path"] = video_full_path
+                        state["video_frame_count"] = 0
+                        print(f"[{source}] 【视频录制启动】 {video_full_path}")
+
+                    if video_writers[camera_key] is not None:
+                        video_writers[camera_key].write(frame)
+                        state["video_frame_count"] += 1
+
+                    # 录制时长到达 → 保存到数据库
+                    if video_start_times[camera_key] is not None:
+                        elapsed = time.time() - video_start_times[camera_key]
+                        if elapsed >= RECORD_DURATION:
+                            if video_writers[camera_key]:
+                                writer_to_release = video_writers[camera_key]
+                                video_writers[camera_key] = None
+                                await asyncio.to_thread(writer_to_release.release)
+                            video_start_times[camera_key] = None
+
+                            mp4_path = state.get("current_video_path")
+                            state["analysis_completed"] = True
+                            state["analysis_start_time"] = None
+
+                            final_results = dict(latest_results[camera_key])
+                            final_person_name = state.get("matched_person")
+                            final_person_id = state.get("person_id")
+
+                            async def finalize_analysis():
+                                if not mp4_path or not os.path.exists(mp4_path) or os.path.getsize(mp4_path) <= 8000:
+                                    print(f"[{source}] 【警告】 视频文件无效或太小，跳过DB保存")
+                                    return
+                                state["current_video_path"] = mp4_path
+                                await persist_analysis_result(source, state, final_results, mp4_path)
+
+                                # 低幸福指数预警邮件（在后台任务内直接 sleep 后发送，避免嵌套 create_task）
+                                happiness_index = float(final_results.get("e12", 0.0))
+                                if final_person_id and final_person_name and final_person_name != "Unknown" and happiness_index < 60:
+                                    await asyncio.sleep(10)
+                                    try:
+                                        await send_analysis_email(
+                                            source=source,
+                                            state={"matched_person": final_person_name, "person_name": final_person_name, "person_id": final_person_id},
+                                            results=final_results,
+                                            video_path=mp4_path
+                                        )
+                                    except Exception:
+                                        pass
+
+                            asyncio.create_task(finalize_analysis())
+
+                state["frame_count"] = analysis_count
+                await asyncio.sleep(0.03)
+
+        except Exception as e:
+            print(f"[{source}] analysis_worker 异常: {e}")
+            traceback.print_exc()
+        finally:
+            if recognize_task is not None and not recognize_task.done():
+                recognize_task.cancel()
+
+    async def generate():
+        """MJPEG 流生成器：只负责取帧 → 画叠加层 → 编码 → 推流，不做任何耗时操作"""
+        nonlocal _shared_frame
+        last_frame_time = time.time()
+        try:
+            while active_clients[camera_key] > 0:
                 ret, frame = cap.read()
                 if not ret:
                     await asyncio.sleep(0.01)
@@ -425,271 +737,78 @@ async def generate_video_stream(
                 if source == 'local':
                     display_frame = cv2.flip(display_frame, 1)
 
-                face_rect = None
-                should_detect = (frame_count % FACE_DETECT_INTERVAL == 0)
+                # 将原始帧给分析 worker
+                _shared_frame = original_frame
 
+                # 画人脸框和识别信息（只读 state，不等待任何耗时操作）
+                face_rect = None
                 if state["analyzing"] and state["locked_rect"] is not None:
                     face_rect = state["locked_rect"]
-                elif should_detect:
-                    face_rect = await asyncio.to_thread(detect_face, display_frame)
-                    if face_rect is not None:
-                        state["last_detected_rect"] = face_rect
-                        x, y, w, h = face_rect
-                        center = (x + w // 2, y + h // 2)
-                        size = (w, h)
-
-                        if state["prev_center"] is not None:
-                            center_dist = np.linalg.norm(np.array(center) - np.array(state["prev_center"]))
-                            size_dist = np.linalg.norm(np.array(size) - np.array(state["prev_size"]))
-                            if center_dist < TOLERANCE and size_dist < TOLERANCE:
-                                state["stable_count"] += 1
-                            else:
-                                state["stable_count"] = 0
-                        else:
-                            state["stable_count"] = 1
-
-                        state["prev_center"] = center
-                        state["prev_size"] = size
-
-                if state["analyzing"] and frame_count % LOST_CHECK_INTERVAL == 0:
-                    current_detect = await asyncio.to_thread(detect_face, display_frame)
-                    if current_detect is None:
-                        print(f"[{source}] 人脸丢失，重置")
-                        reset_analysis_state(source)
-                        analyzer.reset()
-                        face_rect = None
-
-                # 人脸识别
-                if recognize_task is not None and recognize_task.done():
-                    try:
-                        recognize_task.result()
-                    except Exception as rec_task_err:
-                        print(f"[{source}] recognize task error: {rec_task_err}")
-                    recognize_task = None
-
-                can_recognize = (
-                    face_rect is not None
-                    and not state["identified"]
-                    and not state["analyzing"]
-                    and not state.get("recognizing", False)
-                    and frame_count % RECOGNIZE_INTERVAL == 0
-                    and (time.time() - float(state.get("last_recognize_at", 0.0))) >= RECOGNIZE_MIN_GAP_SECONDS
-                )
-                if can_recognize:
-                    state["recognizing"] = True
-                    state["last_recognize_at"] = time.time()
-                    frame_snapshot = frame.copy()
-                    face_rect_snapshot = tuple(face_rect)
-
-                    async def _run_recognize(frame_data, rect_data):
-                        try:
-                            name, _similarity = await recognize_face(query_db, frame_data, rect_data, state)
-                            if name and name != "Unknown":
-                                state["locked_rect"] = rect_data
-                                state["analyzing"] = True
-                                state["analysis_start_time"] = time.time()
-                                analyzer.reset()
-                        except Exception as rec_err:
-                            print(f"[{source}] recognize failed: {rec_err}")
-                        finally:
-                            state["recognizing"] = False
-
-                    recognize_task = asyncio.create_task(_run_recognize(frame_snapshot, face_rect_snapshot))
-
-                if False and (face_rect is not None and not state["identified"] and frame_count % RECOGNIZE_INTERVAL == 0):
-                    name, similarity = await recognize_face(query_db, frame, face_rect, state)
-                    if name and name != "Unknown":
-                        print(f"[{source}] 识别到具体人员: {name}，开始锁定分析")
-                        state["locked_rect"] = face_rect
-                        state["analyzing"] = True
-                        state["analysis_start_time"] = time.time()
-                        analyzer.reset()
+                elif state.get("last_detected_rect") is not None:
+                    face_rect = state["last_detected_rect"]
 
                 if face_rect is not None:
                     remaining_time = None
                     if state["analysis_start_time"] is not None:
                         elapsed = time.time() - state["analysis_start_time"]
                         remaining_time = max(0, state["analysis_duration"] - elapsed)
-
+                    display_rect = get_display_face_rect(source, face_rect, display_frame.shape[1])
                     draw_face_recognition(display_frame, state.get("matched_person") or "Unknown",
-                                          state.get("match_similarity", 0.0), face_rect,
+                                          state.get("match_similarity", 0.0), display_rect,
                                           is_locked=state["analyzing"], remaining_time=remaining_time)
 
-                    # 录制与分析完成
-                    if (state["analyzing"] and not state["analysis_completed"] and
-                        state.get("matched_person") != "Unknown"):
-
-                        if video_writers[source] is None and state["analysis_start_time"] is not None:
-                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            person_id_str = str(state.get('person_id') or 'unknown')
-                            video_filename = f"{timestamp}_{source}_{person_id_str}.avi"
-                            video_full_path = os.path.join(VIDEO_SAVE_DIR, video_filename)
-                            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-
-                            video_writers[source] = cv2.VideoWriter(video_full_path, fourcc, RECORD_FPS, (640, 480))
-                            video_start_times[source] = time.time()
-                            state["current_video_path"] = video_full_path
-                            state["video_frame_count"] = 0
-                            print(f"[{source}] 【视频录制启动】 {video_full_path}")
-
-                        if video_writers[source] is not None:
-                            video_writers[source].write(original_frame)
-                            state["video_frame_count"] += 1
-
-                        # ==================== 录制时长到达 → 转码 + 删除AVI ====================
-                        if video_start_times[source] is not None:
-                            elapsed = time.time() - video_start_times[source]
-                            if elapsed >= RECORD_DURATION:
-                                if video_writers[source]:
-                                    video_writers[source].release()
-                                    video_writers[source] = None
-                                video_start_times[source] = None
-
-                                avi_path = state.get("current_video_path")
-                                final_video_path = avi_path
-
-                                # ==================== ffmpeg 转码并删除原始AVI ====================
-                                if avi_path and avi_path.endswith('.avi'):
-                                    mp4_path = avi_path.replace('.avi', '.mp4')
-                                    try:
-                                        cmd = [
-                                            'ffmpeg', '-i', avi_path,
-                                            '-vcodec', 'libx264',
-                                            '-acodec', 'aac',
-                                            '-pix_fmt', 'yuv420p',
-                                            '-movflags', '+faststart',
-                                            '-preset', 'fast',
-                                            '-crf', '25',
-                                            '-y', mp4_path
-                                        ]
-                                        await asyncio.to_thread(
-                                            subprocess.run, cmd, check=True, capture_output=True, timeout=15
-                                        )
-
-                                        # 转码成功后删除 .avi 文件，只保留 .mp4
-                                        if os.path.exists(mp4_path) and os.path.getsize(mp4_path) > 8000:
-                                            try:
-                                                os.remove(avi_path)
-                                                print(f"[{source}] 【清理完成】 已删除原始AVI: {os.path.basename(avi_path)}")
-                                            except Exception as del_err:
-                                                print(f"[{source}] 【清理警告】 删除AVI失败: {del_err}")
-                                        else:
-                                            print(f"[{source}] 【清理跳过】 MP4文件无效或过小")
-
-                                        final_video_path = mp4_path
-                                        print(f"[{source}] 【ffmpeg 转码成功】 {mp4_path}")
-
-                                    except subprocess.CalledProcessError as e:
-                                        error_msg = e.stderr.decode(errors='ignore') if hasattr(e, 'stderr') and e.stderr else str(e)
-                                        print(f"[{source}] 【ffmpeg转码失败】: {error_msg}")
-                                        final_video_path = avi_path  # 失败时保留avi
-                                    except Exception as e:
-                                        print(f"[{source}] 【ffmpeg转码异常】: {e}")
-                                        final_video_path = avi_path
-
-                                state["current_video_path"] = final_video_path
-
-                                if final_video_path and os.path.exists(final_video_path):
-                                    file_size = os.path.getsize(final_video_path)
-                                    if file_size > 8000 and not state["analysis_completed"]:
-                                        state["analysis_completed"] = True
-                                        state["analysis_start_time"] = None
-
-                                        await save_analysis_to_db(query_db, source, state, latest_results[source], final_video_path)
-
-                                        # ====================== 邮件发送任务 ======================
-                                        happiness_index = float(latest_results[source].get("e12", 0.0))
-                                        person_name = state.get("matched_person")
-                                        person_id = state.get("person_id")
-
-                                        if person_id and person_name and person_name != "Unknown" and happiness_index < 60:
-                                            print(f"[{source}] 幸福指数 {happiness_index:.1f} < 60，准备发送预警邮件")
-
-                                            email_data = {
-                                                "matched_person": person_name,
-                                                "person_name": person_name,
-                                                "person_id": person_id
-                                            }
-
-                                            async def protected_send_email():
-                                                try:
-                                                    await send_analysis_email(
-                                                        source=source,
-                                                        state=email_data,
-                                                        results=latest_results[source],
-                                                        video_path=final_video_path
-                                                    )
-                                                except Exception as e:
-                                                    print(f"[{source}] 邮件发送异常: {e}")
-                                                    traceback.print_exc()
-
-                                            try:
-                                                email_coro = protected_send_email()
-                                                shielded = asyncio.shield(email_coro)
-                                                asyncio.create_task(shielded)
-                                            except Exception as task_e:
-                                                print(f"[{source}] 创建邮件任务失败: {task_e}")
-
-                                        else:
-                                            reason = "未识别到具体人员" if not person_id or person_name == "Unknown" else f"幸福指数 >= 60"
-                                            print(f"[{source}] 跳过邮件发送：{reason}")
-
-                # 振动分析
-                if (state["analyzing"] and not state["analysis_completed"] and
-                    frame_count % ANALYSIS_INTERVAL == 0 and state.get('matched_person') != "Unknown"):
-                    try:
-                        fps = cap.get(cv2.CAP_PROP_FPS) or 30
-                        analysis_results = await asyncio.to_thread(
-                            analyzer.process_frame, original_frame, face_rect=face_rect, fps=fps
-                        )
-                        if analysis_results:
-                            latest_results[source].update(analysis_results)
-                    except Exception as e:
-                        pass
-
-                frame_count += 1
-                state["frame_count"] = frame_count
-
+                # JPEG 编码 + 推流
                 _, buffer = cv2.imencode('.jpg', display_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 45])
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
-                await asyncio.sleep(max(0.001, 1/30 - (time.time() - last_frame_time)))
+                target_fps = 20 if state["analyzing"] else 30
+                await asyncio.sleep(max(0.001, 1 / target_fps - (time.time() - last_frame_time)))
                 last_frame_time = time.time()
 
         except Exception as e:
             print(f"[{source}] 流异常: {e}")
             traceback.print_exc()
         finally:
-            if recognize_task is not None and not recognize_task.done():
-                recognize_task.cancel()
-                try:
-                    await recognize_task
-                except Exception:
-                    pass
+            active_clients[camera_key] -= 1
+            print(f"[{source}] 客户端断开连接，当前客户端数: {active_clients[camera_key]}")
 
-            active_clients[source] -= 1
-            print(f"[{source}] 客户端断开连接，当前客户端数: {active_clients[source]}")
+            if _analysis_task is not None and not _analysis_task.done():
+                _analysis_task.cancel()
 
-            if active_clients[source] == 0:
-                if global_caps[source]:
-                    global_caps[source].release()
-                    global_caps[source] = None
-                reset_analysis_state(source)
+            if active_clients[camera_key] == 0:
+                if global_caps[camera_key]:
+                    global_caps[camera_key].release()
+                    global_caps[camera_key] = None
+                if vid_id is not None:
+                    algorithm_run_registry.stop_camera_runs(vid_id)
+                reset_analysis_state(camera_key)
+
+    # 启动后台分析 worker（独立 asyncio Task，不阻塞 MJPEG 流）
+    if local_analysis_enabled:
+        _analysis_task = asyncio.create_task(analysis_worker())
 
     return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 # ==================== 其他接口 ====================
 @videoController.get("/results")
-async def get_analysis_results(source: str = Query(None)):
-    if source and source in stable_state:
-        state = stable_state[source]
+async def get_analysis_results(
+    source: str = Query(None),
+    vid_id: int = Query(None),
+    query_db: AsyncSession = Depends(get_db),
+):
+    if vid_id is not None:
+        source = await _resolve_source_from_db(query_db, vid_id)
+    camera_key = get_camera_key(vid_id=vid_id, source=source)
+    if camera_key in stable_state:
+        state = stable_state[camera_key]
         return {
             "analyzing": state["analyzing"],
             "completed": state["analysis_completed"],
             "recognizing": state.get("recognizing", False),
             "source": source,
-            "results": {k: float(v) for k, v in latest_results[source].items()},
+            "camera_key": camera_key,
+            "results": {k: float(v) for k, v in latest_results[camera_key].items()},
             "matched_person": state["matched_person"] or "Unknown",
             "person_id": state["person_id"] or "未知ID",
             "similarity": state["match_similarity"] or 0.0,
@@ -710,14 +829,51 @@ async def get_analysis_results(source: str = Query(None)):
 
 
 @videoController.get("/reset")
-async def reset_analysis(source: str = Query(..., description="local 或 rtsp")):
-    if source not in stable_state:
+async def reset_analysis(
+    source: str = Query(default=None, description="local 或 rtsp"),
+    vid_id: int = Query(default=None),
+    query_db: AsyncSession = Depends(get_db),
+):
+    if vid_id is not None:
+        source = await _resolve_source_from_db(query_db, vid_id)
+    elif source not in ["local", "rtsp"]:
         raise HTTPException(status_code=400, detail="无效的source参数")
 
-    active_clients[source] = 0
-    if global_caps[source]:
-        global_caps[source].release()
-        global_caps[source] = None
+    camera_key = get_camera_key(vid_id=vid_id, source=source)
+    ensure_camera_state(camera_key)
+    active_clients[camera_key] = 0
+    if global_caps[camera_key]:
+        global_caps[camera_key].release()
+        global_caps[camera_key] = None
 
-    reset_analysis_state(source)
-    return {"status": "success", "message": f"{source} 已重置"}
+    reset_analysis_state(camera_key)
+    if vid_id is not None:
+        algorithm_run_registry.stop_camera_runs(vid_id)
+    return {"status": "success", "message": f"{camera_key} 已重置"}
+
+
+@videoController.get("/camera-list", summary="获取注册的摄像头列表")
+async def list_registered_cameras(query_db: AsyncSession = Depends(get_db)):
+    try:
+        from module_xuzhou.entity.do.video_do import XuzhouVideo
+        from sqlalchemy import select
+
+        result = await query_db.execute(select(XuzhouVideo).order_by(XuzhouVideo.vid_id))
+        cameras = result.scalars().all()
+
+        rows = []
+        for cam in cameras:
+            rows.append({
+                "vidId": cam.vid_id,
+                "vidName": cam.vid_name or f"摄像头{cam.vid_id}",
+                "vidSerial": cam.vid_serial or "",
+                "vidType": cam.vid_type or "local",
+                "vidUri": cam.vid_uri or "",
+                "vidSceneName": cam.vid_scene_name or "",
+            })
+        print(f"[camera-list] 返回{len(rows)}个注册摄像头")
+        return rows
+    except Exception as e:
+        print(f"[camera-list] 错误: {e}")
+        traceback.print_exc()
+        return []

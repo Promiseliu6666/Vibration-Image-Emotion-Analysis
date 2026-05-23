@@ -40,7 +40,9 @@ class VideoModel(BaseModel):
             return json.dumps(v, ensure_ascii=False)
         return v
 
+    vid_box_serial: Optional[str] = Field(default=None, description='所属盒子序列号')
     vid_uri: Optional[str] = Field(default=None, description='视频URI')
+    vid_analysis_mode: Optional[str] = Field(default='realtime', description='分析模式(realtime/clip)')
     vid_update_time: Optional[datetime] = Field(default=None, description='更新时间')
 
 

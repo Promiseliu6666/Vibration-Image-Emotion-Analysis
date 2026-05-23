@@ -111,6 +111,45 @@ export const constantRoutes = [
     ]
   },
   {
+    path: '',
+    component: Layout,
+    redirect: 'noredirect',
+    children: [
+      {
+        path: '/camera-list',
+        component: () => import('@/views/xz-monitor/camera-list/index'),
+        name: 'camera-list',
+        meta: { title: '摄像头列表', icon: 'monitor', affix: true }
+      }
+    ]
+  },
+  {
+    path: '',
+    component: Layout,
+    redirect: 'noredirect',
+    children: [
+      {
+        path: '/box-test',
+        component: () => import('@/views/xz-monitor/box-test/index'),
+        name: 'BoxTest',
+        meta: { title: '盒子调试', icon: 'monitor', affix: true }
+      }
+    ]
+  },
+  {
+    path: '',
+    component: Layout,
+    redirect: 'noredirect',
+    children: [
+      {
+        path: '/algorithm-list',
+        component: () => import('@/views/algorithm/list/index'),
+        name: 'AlgorithmList',
+        meta: { title: '算法列表', icon: 'list', affix: true }
+      }
+    ]
+  },
+  {
     path: '/user',
     component: Layout,
     hidden: true,

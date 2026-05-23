@@ -35,11 +35,6 @@ videoController = APIRouter(prefix='/xuzhou/video', dependencies=[Depends(unifie
 
 
 @videoController.get('/list', response_model=PageResponseModel, summary='获取视频列表')
-@integration_log(
-    title='获取视频列表',
-    system_name='徐州视频管理系统',
-    business_type=BusinessType.OTHER,
-)
 async def get_video_list(
     request: Request,
     video_page_query: VideoPageQueryModel = Depends(VideoPageQueryModel.as_query),

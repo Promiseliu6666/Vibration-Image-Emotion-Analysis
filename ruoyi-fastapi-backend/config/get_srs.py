@@ -110,7 +110,7 @@ class SRSUtil:
                 return -3
 
         except requests.exceptions.RequestException as e:
-            logger.error(f'检查SRS流播放器失败: {str(e)}')
+            logger.warning(f'检查SRS流播放器失败: {str(e)}')
             return -4
         except Exception as e:
             logger.error(f'解析SRS API响应失败: {str(e)}')

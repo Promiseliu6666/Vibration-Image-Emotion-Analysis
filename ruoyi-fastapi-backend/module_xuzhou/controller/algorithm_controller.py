@@ -1,13 +1,10 @@
-from datetime import datetime
-
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.enums import BusinessType
 from config.get_db import get_db
 from module_admin.annotation.integration_log_annotation import integration_log
 from module_xuzhou.auth import unified_auth
-from module_xuzhou.dao.alg_dao import AlgDao
 from module_xuzhou.entity.vo.alg_vo import AlgModel, AlgPageQueryModel
 from module_xuzhou.service.alg_service import AlgService
 from utils.page_util import PageResponseModel
@@ -62,12 +59,44 @@ async def add_algorithm(request: Request, alg: AlgModel, query_db: AsyncSession 
     """
     添加算法
     """
-    # 设置更新时间
-    alg.alg_update_time = datetime.now()
-    # 调用DAO层添加算法
-    result = await AlgDao.add_alg_dao(query_db, alg)
-    await query_db.commit()
-    return ResponseUtil.success(msg='添加成功')
+    try:
+        await AlgService.add_alg_services(query_db, alg)
+        return ResponseUtil.success(msg='添加成功')
+    except Exception as e:
+        await query_db.rollback()
+        return ResponseUtil.error(msg=f'添加失败: {e}')
+
+
+@algorithmController.post('/upload-weight', summary='上传算法权重并创建版本')
+@integration_log(
+    title='上传算法权重',
+    system_name='徐州算法管理系统',
+    business_type=BusinessType.INSERT,
+)
+async def upload_algorithm_weight(
+    request: Request,
+    alg_name: str = Form(...),
+    alg_serial: str = Form(...),
+    alg_version: str = Form(...),
+    alg_runtime_type: str = Form('external_box'),
+    alg_default_conf: str = Form('{}'),
+    file: UploadFile = File(...),
+    query_db: AsyncSession = Depends(get_db),
+):
+    try:
+        db_alg = await AlgService.upload_weight_services(
+            query_db,
+            alg_name=alg_name,
+            alg_serial=alg_serial,
+            alg_version=alg_version,
+            alg_runtime_type=alg_runtime_type,
+            alg_default_conf=alg_default_conf,
+            upload_file=file,
+        )
+        return ResponseUtil.success(data=AlgModel.model_validate(db_alg).model_dump(by_alias=True), msg='上传成功')
+    except Exception as e:
+        await query_db.rollback()
+        return ResponseUtil.error(msg=f'上传失败: {e}')
 
 
 @algorithmController.get('/{alg_id}', response_model=AlgModel, summary='获取算法详细信息', include_in_schema=False)

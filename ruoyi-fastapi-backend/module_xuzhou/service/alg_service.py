@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import datetime
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,83 @@ class AlgService:
     """
     算法管理模块服务层
     """
+
+    WEIGHT_ROOT = Path('algorithm') / 'model'
+    ALLOWED_WEIGHT_EXTENSIONS = {'.onnx', '.pt', '.pth', '.bin', '.engine'}
+
+    @staticmethod
+    def safe_path_part(value: str) -> str:
+        if not value:
+            raise ValueError('路径片段不能为空')
+        if not re.fullmatch(r'[A-Za-z0-9_.-]+', value):
+            raise ValueError('路径片段只能包含字母、数字、下划线、短横线和点')
+        return value
+
+    @classmethod
+    def validate_weight_extension(cls, filename: str) -> str:
+        suffix = Path(filename).suffix.lower()
+        if suffix not in cls.ALLOWED_WEIGHT_EXTENSIONS:
+            raise ValueError('不支持的权重文件类型')
+        return suffix
+
+    @classmethod
+    def build_weight_relative_path(cls, alg_serial: str, alg_version: str, filename: str) -> str:
+        safe_serial = cls.safe_path_part(alg_serial)
+        safe_version = cls.safe_path_part(alg_version)
+        safe_name = cls.safe_path_part(Path(filename).name)
+        cls.validate_weight_extension(safe_name)
+        return str(cls.WEIGHT_ROOT / safe_serial / safe_version / safe_name).replace('\\', '/')
+
+    @classmethod
+    async def upload_weight_services(
+        cls,
+        query_db: AsyncSession,
+        alg_name: str,
+        alg_serial: str,
+        alg_runtime_type: str,
+        alg_default_conf: str | None,
+        upload_file,
+    ):
+        existing = await AlgDao.get_alg_by_serial_version(query_db, alg_serial, alg_version)
+        if existing:
+            raise ValueError('该算法版本已存在')
+
+        relative_path = cls.build_weight_relative_path(alg_serial, alg_version, upload_file.filename)
+        full_path = Path(relative_path)
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        with full_path.open('wb') as weight_file:
+            while chunk := await upload_file.read(1024 * 1024):
+                weight_file.write(chunk)
+
+        alg = AlgModel(
+            alg_name=alg_name,
+            alg_serial=alg_serial,
+            alg_version=alg_version,
+            alg_default_conf=alg_default_conf or '{}',
+            alg_weight_path=relative_path,
+            alg_runtime_type=alg_runtime_type,
+            alg_enabled=True,
+            alg_update_time=datetime.now(),
+        )
+        db_alg = await AlgDao.add_alg_dao(query_db, alg)
+        await query_db.commit()
+        return db_alg
+
+    @staticmethod
+    def algorithm_is_bound(video_rows: list, alg_id: int) -> bool:
+        for row in video_rows:
+            raw_algorithms = row.get('vidAlgorithm') or row.get('vid_algorithm') or []
+            if isinstance(raw_algorithms, str):
+                try:
+                    raw_algorithms = json.loads(raw_algorithms)
+                except json.JSONDecodeError:
+                    raw_algorithms = []
+            if not isinstance(raw_algorithms, list):
+                continue
+            for item in raw_algorithms:
+                if isinstance(item, dict) and int(item.get('algId') or item.get('alg_id') or 0) == int(alg_id):
+                    return True
+        return False
 
     @classmethod
     async def get_alg_list_services(
@@ -72,6 +150,16 @@ class AlgService:
         return result
 
     @classmethod
+    async def add_alg_services(cls, query_db: AsyncSession, alg: AlgModel):
+        existing = await AlgDao.get_alg_by_serial_version(query_db, alg.alg_serial, alg.alg_version)
+        if existing:
+            raise ValueError('该算法版本已存在')
+        alg.alg_update_time = datetime.now()
+        db_alg = await AlgDao.add_alg_dao(query_db, alg)
+        await query_db.commit()
+        return db_alg
+
+    @classmethod
     async def edit_alg_services(cls, query_db: AsyncSession, alg: AlgModel):
         """
         编辑算法信息service
@@ -80,10 +168,10 @@ class AlgService:
         :param alg: 算法对象
         :return:
         """
-        # 设置更新时间
-        alg.alg_update_time = datetime.now()
+        update_data = alg.model_dump(exclude_unset=True)
+        update_data['alg_update_time'] = datetime.now()
         # 调用DAO层编辑算法
-        await AlgDao.edit_alg_dao(query_db, alg.model_dump())
+        await AlgDao.edit_alg_dao(query_db, update_data)
         await query_db.commit()
 
     @classmethod
@@ -98,6 +186,18 @@ class AlgService:
         # 检查算法是否存在
         alg_info = await AlgDao.get_alg_detail_by_id(query_db, alg_id=alg_id)
         if alg_info:
+            video_list = await VideoDao.get_video_all(query_db)
+            video_rows = [
+                {
+                    'vid_id': video[0],
+                    'vid_scene_name': video[1],
+                    'vid_algorithm_name': video[2],
+                    'vid_algorithm': video[3],
+                }
+                for video in video_list
+            ]
+            if cls.algorithm_is_bound(video_rows, alg_id):
+                raise ValueError('算法版本已绑定摄像头，请先解绑后再删除')
             # 调用DAO层删除算法
             await AlgDao.delete_alg_dao(query_db, alg_id=alg_id)
             await query_db.commit()
