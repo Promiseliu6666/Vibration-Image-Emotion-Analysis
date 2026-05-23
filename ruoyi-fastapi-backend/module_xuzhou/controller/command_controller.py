@@ -51,6 +51,23 @@ video_start_time = {}
 
 # 盒子上线注册表 {serial: {box_name, host, capabilities, last_seen, status}}
 box_registry: dict[str, dict] = {}
+BOX_HEARTBEAT_TIMEOUT = 120  # 盒子心跳超时（秒），超时自动清理
+
+
+def cleanup_stale_boxes():
+    """清理心跳超时的盒子"""
+    now = datetime.now()
+    stale = []
+    for serial, info in box_registry.items():
+        try:
+            last_seen = datetime.fromisoformat(info.get('last_seen', ''))
+            if (now - last_seen).total_seconds() > BOX_HEARTBEAT_TIMEOUT:
+                stale.append(serial)
+        except (ValueError, TypeError):
+            stale.append(serial)
+    for serial in stale:
+        logger.info(f'清理超时盒子: {serial}')
+        del box_registry[serial]
 
 
 async def save_box_register(message: dict):
@@ -657,6 +674,7 @@ async def get_device_status_cache(request: Request, vid_id: int = None):
 )
 async def get_boxes(request: Request):
     """获取已注册上线的盒子列表"""
+    cleanup_stale_boxes()
     now = datetime.now().timestamp()
     online = {}
     offline = {}

@@ -513,9 +513,7 @@ async function fetchBoxes() {
   try {
     const res = await listBoxes()
     if (res.code === 200 && res.data) {
-      const online = (res.data.online || []).map(b => ({ ...b, status: 'online' }))
-      const offline = (res.data.offline || []).map(b => ({ ...b, status: 'offline' }))
-      boxOptions.value = [...online, ...offline]
+      boxOptions.value = (res.data.online || []).map(b => ({ ...b, status: 'online' }))
     }
   } catch { /* ignore */ }
 }
