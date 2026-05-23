@@ -42,6 +42,8 @@ received_messages = {}
 
 # 设备状态缓存 - 以vid_id为key存储
 device_status_cache = {}
+_vid_validated_at: dict[int, float] = {}  # vid_id -> 上次校验时间戳，定期重验防删除后残留
+VID_REVALIDATE_INTERVAL = 60  # 已在缓存中的设备每60秒重新校验一次数据库
 
 # 视频推送时间缓存
 video_start_time = {}
@@ -89,6 +91,34 @@ async def save_device_status(message: dict):
                 return
         
         devices = message.get('devices', [])
+
+        # 过滤不存在的设备：盒子上报的 vid_id 必须在数据库中存在
+        now_ts = datetime.now().timestamp()
+        incoming_vid_ids = {d.get('vid_id') for d in devices if d.get('vid_id') is not None}
+        need_check_ids = incoming_vid_ids - set(device_status_cache.keys())
+        # 已在缓存中的设备，定期重验防止数据库删除后残留
+        for vid_id in incoming_vid_ids & set(device_status_cache.keys()):
+            last_check = _vid_validated_at.get(vid_id, 0)
+            if now_ts - last_check > VID_REVALIDATE_INTERVAL:
+                need_check_ids.add(vid_id)
+        if need_check_ids:
+            from config.database import AsyncSessionLocal
+            async with AsyncSessionLocal() as session:
+                for vid_id in list(need_check_ids):
+                    try:
+                        video = await VideoService.video_detail_services(session, vid_id)
+                        if video:
+                            _vid_validated_at[vid_id] = now_ts
+                        else:
+                            logger.warning(f"盒子 {message.get('serial')} 上报了数据库中不存在的设备 vid_id={vid_id}，忽略")
+                            need_check_ids.discard(vid_id)
+                            # 同时清除缓存中的残留
+                            device_status_cache.pop(vid_id, None)
+                            _vid_validated_at.pop(vid_id, None)
+                    except Exception:
+                        need_check_ids.discard(vid_id)
+            devices = [d for d in devices if d.get('vid_id') is None or d.get('vid_id') in device_status_cache or d.get('vid_id') in need_check_ids]
+
         box_serial = message.get('serial')
         if box_serial is not None:
             reported_vid_ids = {device.get('vid_id') for device in devices if device.get('vid_id') is not None}
