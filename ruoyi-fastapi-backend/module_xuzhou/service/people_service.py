@@ -238,6 +238,50 @@ class PeopleService:
         similarity = np.dot(features1, features2) / (norm1 * norm2)
         return float(similarity)
 
+    @classmethod
+    async def face_compare_by_face_crop_services(
+        cls, query_db: AsyncSession, face_crop: np.ndarray, group_id: int, threshold: float = 0.7
+    ) -> list[dict[str, Any]]:
+        """Face compare using pre-cropped face image (no detection step)."""
+        try:
+            extractor: FaceFeatureExtractor = await get_feature_extractor()
+            async with feature_extract_lock:
+                features_raw: np.ndarray = await asyncio.to_thread(
+                    extractor.extract_features_from_crop, face_crop
+                )
+            upload_features = cls._to_normalized_feature_vector(features_raw)
+            if upload_features is None:
+                return [{}]
+
+            all_people = await cls._get_group_feature_vectors(query_db, group_id)
+            results: list[dict[str, Any]] = []
+            for person in all_people:
+                person_vector = person.get("vector")
+                if person_vector is None:
+                    continue
+                try:
+                    similarity = float(np.dot(upload_features, person_vector))
+                except ValueError:
+                    continue
+                if similarity >= threshold:
+                    results.append({
+                        "id": person["id"],
+                        "name": person["name"],
+                        "group_id": person["group_id"],
+                        "similarity": round(similarity, 4),
+                        "pics": person["pics"],
+                    })
+
+            results.sort(key=lambda x: x["similarity"], reverse=True)
+            return results if results else [{}]
+        except InvalidPictureError as e:
+            logger.debug(f"Face compare by crop skipped: {e}")
+            return [{}]
+        except Exception as e:
+            logger.error(f"Face compare by crop failed: {e}")
+            logger.error(traceback.format_exc())
+            return [{}]
+
 
 class FaceFeatureExtractor:
     """Face feature extractor."""
@@ -331,4 +375,12 @@ class FaceFeatureExtractor:
             features: list = list(self.extract_feature_model.predict(image_np))
         if len(features) == 0:
             raise InvalidPictureError("No face recognized")
+        return list(features)[0]["feature"]
+
+    def extract_features_from_crop(self, face_crop: np.ndarray) -> np.ndarray:
+        """Extract features from a pre-cropped face image (no detection needed)."""
+        with paddle.no_grad(), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            features: list = list(self.extract_feature_model.predict(face_crop))
+        if len(features) == 0:
+            raise InvalidPictureError("Face feature extraction failed")
         return list(features)[0]["feature"]
