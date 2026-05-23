@@ -43,6 +43,7 @@ received_messages = {}
 # 设备状态缓存 - 以vid_id为key存储
 device_status_cache = {}
 _vid_validated_at: dict[int, float] = {}  # vid_id -> 上次校验时间戳，定期重验防删除后残留
+_warned_missing_vids: set[int] = set()  # 已警告过不存在的设备，避免重复刷屏
 VID_REVALIDATE_INTERVAL = 60  # 已在缓存中的设备每60秒重新校验一次数据库
 
 # 视频推送时间缓存
@@ -110,7 +111,9 @@ async def save_device_status(message: dict):
                         if video:
                             _vid_validated_at[vid_id] = now_ts
                         else:
-                            logger.warning(f"盒子 {message.get('serial')} 上报了数据库中不存在的设备 vid_id={vid_id}，忽略")
+                            if vid_id not in _warned_missing_vids:
+                                logger.warning(f"盒子 {message.get('serial')} 上报了数据库中不存在的设备 vid_id={vid_id}，已忽略（后续不再警告）")
+                                _warned_missing_vids.add(vid_id)
                             need_check_ids.discard(vid_id)
                             # 同时清除缓存中的残留
                             device_status_cache.pop(vid_id, None)
@@ -160,7 +163,8 @@ async def save_device_status(message: dict):
                 logger.warning(f"设备信息不完整: {device}")
         
         device_status_cache.update(new_device_status)
-        logger.info(f"缓存设备状态：{device_status_cache}")
+        if new_device_status:
+            logger.info(f"缓存设备状态：{device_status_cache}")
         
         # 检查是否需要关闭流
         try:
