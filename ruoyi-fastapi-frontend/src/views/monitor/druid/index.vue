@@ -6,10 +6,26 @@
       <div class="controls">
         <div class="control-group">
           <label>摄像头：</label>
-          <el-select v-model="cameraSource" size="small" style="width: 160px">
-            <el-option label="本地摄像头" value="local" />
-            <el-option label="海康RTSP摄像头" value="rtsp" />
+          <el-select v-model="selectedVidId" size="small" style="width: 240px" filterable @change="onCameraChange">
+            <el-option label="本地摄像头（通用）" value="" />
+            <el-option
+              v-for="cam in cameraOptions"
+              :key="cam.vidId"
+              :label="`${cam.vidName} (${cam.vidType || 'rtsp'})`"
+              :value="cam.vidId"
+            >
+              <span>{{ cam.vidName }}</span>
+              <el-tag v-if="cam.vidBoxSerial" size="small" type="warning" style="margin-left:6px">盒子-{{ cam.vidBoxSerial }}</el-tag>
+              <el-tag v-else size="small" type="success" style="margin-left:6px">本地</el-tag>
+            </el-option>
           </el-select>
+        </div>
+        <div class="control-group">
+          <el-tag v-if="selectedCamera && selectedCamera.vidAlgorithmName?.length" type="info" size="small" effect="plain">
+            算法: {{ selectedCamera.vidAlgorithmName.join(', ') }}
+          </el-tag>
+          <el-tag v-else-if="!selectedVidId" type="success" size="small" effect="plain">默认全开</el-tag>
+          <el-tag v-else type="warning" size="small" effect="plain">未配置算法</el-tag>
         </div>
         <div class="control-group">
           <el-button
@@ -33,7 +49,7 @@
           <img
             ref="videoImg"
             :src="videoStreamUrl"
-            :key="cameraSource"
+            :key="videoStreamUrl"
             alt="实时视频流"
             class="video-stream"
             @load="onVideoLoad"
@@ -236,14 +252,17 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, User } from '@element-plus/icons-vue'
+import { listVideo } from '@/api/xuzhou/video'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
 
 // ==================== 状态管理 ====================
-const cameraSource = ref('local')
+const selectedVidId = ref('')  // 空字符串 = 通用本地摄像头
+const cameraOptions = ref([])
+const selectedCamera = computed(() => cameraOptions.value.find(c => c.vidId === selectedVidId.value))
 const videoStatus = ref('connecting')
 const statusText = ref('连接中...')
 const showConnectionTip = ref(false)
@@ -323,7 +342,10 @@ const numberFormat = (value) => {
 // ==================== 视频流URL ====================
 const videoStreamUrl = computed(() => {
   const timestamp = new Date().getTime()
-  return `${baseURL}/video/feed/analysis?source=${cameraSource.value}&t=${timestamp}`
+  const params = selectedVidId.value
+    ? `vid_id=${selectedVidId.value}&t=${timestamp}`
+    : `source=local&t=${timestamp}`
+  return `${baseURL}/video/feed/analysis?${params}`
 })
 
 // ==================== 幸福指数计算（与后端同步）====================
@@ -398,9 +420,9 @@ const onVideoError = () => {
     stopPolling()
     clearResults()
     statusText.value = '摄像头不可用'
-    connectionTipText.value = cameraSource.value === 'rtsp'
-      ? '❌ 海康RTSP摄像头连接失败 (500)\n请检查设备电源、IP或RTSP地址'
-      : '❌ 本地摄像头无法打开 (500)\n请确认设备未被其他程序占用'
+    connectionTipText.value = selectedVidId.value
+      ? `❌ 摄像头 ${selectedCamera.value?.vidName || selectedVidId.value} 连接失败\n请检查设备电源、IP或视频流地址`
+      : '❌ 本地摄像头无法打开\n请确认设备未被其他程序占用'
   }
 }
 
@@ -427,7 +449,10 @@ const fetchResults = async () => {
   if (!shouldPolling.value) return
 
   try {
-    const res = await fetch(`${baseURL}/video/results?source=${cameraSource.value}`)
+    const queryParam = selectedVidId.value
+      ? `vid_id=${selectedVidId.value}`
+      : 'source=local'
+    const res = await fetch(`${baseURL}/video/results?${queryParam}`)
     const data = await res.json()
 
     console.log("后端返回数据：", data)
@@ -507,7 +532,10 @@ const handleVisibilityChange = () => {
 const resetParams = async () => {
   resetLoading.value = true
   try {
-    const res = await fetch(`${baseURL}/video/reset?source=${cameraSource.value}`)
+    const queryParam = selectedVidId.value
+      ? `vid_id=${selectedVidId.value}`
+      : 'source=local'
+    const res = await fetch(`${baseURL}/video/reset?${queryParam}`)
     if (res.ok) {
       const data = await res.json()
       clearResults()
@@ -525,28 +553,29 @@ const resetParams = async () => {
   }
 }
 
-// ==================== 摄像头切换 ====================
-watch(cameraSource, async (newVal, oldVal) => {
-  if (oldVal && oldVal !== newVal) {
-    stopPolling()
-    shouldPolling.value = false
-    clearResults()
-    isAnalyzing.value = false
-    analysisCompleted.value = false
-    videoStatus.value = 'connecting'
-
-    try {
-      await fetch(`${baseURL}/video/reset?source=${oldVal}`)
-    } catch (e) {
-      console.warn('重置旧摄像头源失败', e)
+// ==================== 摄像头列表获取 ====================
+async function fetchCameras() {
+  try {
+    const res = await listVideo({ pageNum: 1, pageSize: 9999 })
+    if (res.code === 200) {
+      cameraOptions.value = res.rows || []
     }
+  } catch { /* ignore */ }
+}
 
-    await new Promise(resolve => setTimeout(resolve, 500))
-  }
+function onCameraChange() {
+  stopPolling()
+  shouldPolling.value = false
+  clearResults()
+  isAnalyzing.value = false
+  analysisCompleted.value = false
+  videoStatus.value = 'connecting'
 
-  shouldPolling.value = true
-  startPolling()
-})
+  setTimeout(() => {
+    shouldPolling.value = true
+    startPolling()
+  }, 500)
+}
 
 // ==================== 进度条颜色 ====================
 const getLevelClass = (value) => {
@@ -556,7 +585,8 @@ const getLevelClass = (value) => {
 }
 
 // ==================== 生命周期 ====================
-onMounted(() => {
+onMounted(async () => {
+  await fetchCameras()
   startPolling()
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
@@ -565,7 +595,10 @@ onBeforeUnmount(() => {
   stopPolling()
   shouldPolling.value = false
   if (videoImg.value) videoImg.value.src = ''
-  fetch(`${baseURL}/video/reset?source=${cameraSource.value}`).catch(() => {})
+  const queryParam = selectedVidId.value
+    ? `vid_id=${selectedVidId.value}`
+    : 'source=local'
+  fetch(`${baseURL}/video/reset?${queryParam}`).catch(() => {})
 })
 
 onUnmounted(() => {
