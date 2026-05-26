@@ -75,6 +75,7 @@ class CameraManager:
         self._frame_callbacks: list[FrameCallback] = []
         self._latest_frames: dict[int, np.ndarray] = {}
         self._frame_lock = threading.Lock()
+        self._stop_events: dict[int, threading.Event] = {}
 
     def get_snapshot(self, vid_id: int) -> np.ndarray | None:
         with self._frame_lock:
@@ -141,16 +142,19 @@ class CameraManager:
 
         thread = threading.Thread(target=self._read_loop, args=(vid_id,), daemon=True)
         self._read_threads[vid_id] = thread
+        self._stop_events[vid_id] = threading.Event()
         thread.start()
         state.status = CameraStatus.RUNNING
         return state
 
     def stop_camera(self, vid_id: int) -> None:
-        if vid_id in self._read_threads:
-            del self._read_threads[vid_id]
-        if vid_id in self._captures:
-            cap = self._captures.pop(vid_id)
-            cap.release()
+        # signal the read loop to exit — the loop's finally block handles cap.release()
+        stop_event = self._stop_events.pop(vid_id, None)
+        if stop_event is not None:
+            stop_event.set()
+        thread = self._read_threads.pop(vid_id, None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5)
         # stop SRS push — key is publish_path
         state = self._cameras.get(vid_id)
         if state and state.publish_path:
@@ -236,29 +240,46 @@ class CameraManager:
         DISCONNECT_THRESHOLD = 30
         consecutive_failures = 0
 
-        while vid_id in self._captures and self._captures.get(vid_id) is cap:
-            ret, frame = cap.read()
-            if not ret:
-                consecutive_failures += 1
-                if consecutive_failures >= DISCONNECT_THRESHOLD and state:
-                    state.status = CameraStatus.ERROR
-                    state.error_message = f"视频流中断，连续 {DISCONNECT_THRESHOLD} 帧读取失败"
+        try:
+            stop_event = self._stop_events.get(vid_id)
+            while vid_id in self._captures and self._captures.get(vid_id) is cap \
+                    and (stop_event is None or not stop_event.is_set()):
+                ret, frame = cap.read()
+                if not ret:
+                    consecutive_failures += 1
+                    if consecutive_failures >= DISCONNECT_THRESHOLD and state:
+                        state.status = CameraStatus.ERROR
+                        state.error_message = f"视频流中断，连续 {DISCONNECT_THRESHOLD} 帧读取失败"
+                        self._stop_srs_push(state.publish_path)
+                        return
+                    time.sleep(0.1)
+                    continue
+
+                consecutive_failures = 0
+
+                # store latest frame for snapshot
+                with self._frame_lock:
+                    self._latest_frames[vid_id] = frame.copy()
+
+                if state and state.status == CameraStatus.RUNNING:
+                    for cb in self._frame_callbacks:
+                        try:
+                            cb(vid_id, frame, state.algorithms)
+                        except Exception:
+                            pass
+        finally:
+            # release capture in the same thread that created it to avoid V4L2 races.
+            # suppress V4L2 ioctl stderr noise during release on ARM.
+            if cap.isOpened():
+                try:
+                    _devnull = os.open(os.devnull, os.O_WRONLY)
+                    _stderr_fd = 2
+                    _saved = os.dup(_stderr_fd)
+                    os.dup2(_devnull, _stderr_fd)
+                    os.close(_devnull)
                     cap.release()
-                    self._captures.pop(vid_id, None)
-                    self._stop_srs_push(state.publish_path)
-                    return
-                time.sleep(0.1)
-                continue
-
-            consecutive_failures = 0
-
-            # store latest frame for snapshot
-            with self._frame_lock:
-                self._latest_frames[vid_id] = frame.copy()
-
-            if state and state.status == CameraStatus.RUNNING:
-                for cb in self._frame_callbacks:
-                    try:
-                        cb(vid_id, frame, state.algorithms)
-                    except Exception:
-                        pass
+                    os.dup2(_saved, _stderr_fd)
+                    os.close(_saved)
+                except Exception:
+                    cap.release()
+            self._captures.pop(vid_id, None)

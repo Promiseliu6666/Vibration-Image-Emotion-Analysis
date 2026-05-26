@@ -261,6 +261,9 @@
             v-else-if="row.deviceStatus !== 'offline'"
             type="success" link icon="VideoPlay" @click="handleStartOne(row)">启动</el-button>
 
+          <el-button
+            v-if="!row.vidBoxSerial"
+            type="primary" link icon="List" @click="handleRunHistory(row)">运行记录</el-button>
           <el-button type="primary" link icon="Setting" @click="showAlgorithmDialog(row)">配置算法</el-button>
           <el-button type="primary" link icon="Edit" @click="handleUpdate(row)">修改</el-button>
           <el-button type="danger" link icon="Delete" @click="handleDelete(row)">删除</el-button>
@@ -361,7 +364,7 @@
     >
       <div v-loading="algorithmLoading">
         <el-alert
-          title="为当前摄像头选择需要运行的算法版本，停用算法不可选择。"
+          :title="`当前摄像头位置: ${algorithmCamera?.vidBoxSerial ? `盒子-${algorithmCamera.vidBoxSerial}` : '本地服务器'}，仅显示${algorithmCamera?.vidBoxSerial ? '盒子端' : '本地'}算法`"
           type="info"
           :closable="false"
           class="mb8"
@@ -474,16 +477,63 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 本地算法运行记录弹窗 -->
+    <el-dialog
+      v-model="runHistoryVisible"
+      :title="`运行记录 - ${runHistoryCamera?.vidName || ''}`"
+      width="700px"
+      append-to-body
+      destroy-on-close
+    >
+      <div v-loading="runHistoryLoading">
+        <el-empty v-if="!runHistoryLoading && runHistoryList.length === 0" description="暂无运行记录" />
+        <el-table v-else :data="runHistoryList" border stripe size="small">
+          <el-table-column label="算法" prop="algorithmName" min-width="140" show-overflow-tooltip />
+          <el-table-column label="状态" width="90" align="center">
+            <template #default="{ row }">
+              <el-tag :type="{ running: 'success', completed: '', failed: 'danger', stopped: 'info' }[row.status]" size="small">
+                {{ runStatusLabel(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="启动时间" width="160" align="center">
+            <template #default="{ row }">{{ row.startTime ? parseTime(row.startTime) : '-' }}</template>
+          </el-table-column>
+          <el-table-column label="结束时间" width="160" align="center">
+            <template #default="{ row }">{{ row.endTime ? parseTime(row.endTime) : '-' }}</template>
+          </el-table-column>
+          <el-table-column label="耗时" width="90" align="center">
+            <template #default="{ row }">
+              <span v-if="row.startTime && row.endTime">{{ ((new Date(row.endTime) - new Date(row.startTime)) / 1000).toFixed(0) }}s</span>
+              <span v-else-if="row.status === 'running'">-</span>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="错误信息" min-width="160" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.errorMessage || '-' }}</template>
+          </el-table-column>
+        </el-table>
+        <pagination
+          v-show="runHistoryTotal > 0"
+          :total="runHistoryTotal"
+          v-model:page="runHistoryPage.pageNum"
+          v-model:limit="runHistoryPage.pageSize"
+          @pagination="loadRunHistory"
+          layout="prev, pager, next"
+        />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { VideoCamera, VideoPlay, VideoPause, Select, Warning, RefreshRight } from '@element-plus/icons-vue'
+import { VideoCamera, VideoPlay, VideoPause, Select, Warning, RefreshRight, List } from '@element-plus/icons-vue'
 import { listVideo, addVideo, updateVideo, delVideo, getVideo } from '@/api/xuzhou/video'
 import { listAlgorithm } from '@/api/xuzhou/algorithm'
-import { startCamera, stopCamera, listBoxes, getCameraStreamUrl, getCameraSnapshot, startLocalCamera, stopLocalCamera, getLocalCameraStreamUrl, getLocalCameraSnapshot } from '@/api/xuzhou/camera'
+import { startCamera, stopCamera, listBoxes, getCameraStreamUrl, getCameraSnapshot, startLocalCamera, stopLocalCamera, getLocalCameraStreamUrl, getLocalCameraSnapshot, getLocalCameraRuns } from '@/api/xuzhou/camera'
 import { parseTime } from '@/utils/ruoyi'
 import flvjs from 'flv.js'
 
@@ -508,6 +558,14 @@ const algorithmCamera = ref(null)
 const algorithmOptions = ref([])
 const selectedAlgorithmIds = ref([])
 const boxOptions = ref([])
+
+// 本地算法运行记录
+const runHistoryVisible = ref(false)
+const runHistoryCamera = ref(null)
+const runHistoryLoading = ref(false)
+const runHistoryList = ref([])
+const runHistoryTotal = ref(0)
+const runHistoryPage = reactive({ pageNum: 1, pageSize: 20 })
 
 async function fetchBoxes() {
   try {
@@ -557,7 +615,13 @@ const uriPlaceholder = computed(() => {
   return tips[form.vidType] || '请输入流地址'
 })
 
-const enabledAlgorithmOptions = computed(() => algorithmOptions.value.filter(item => item.algEnabled !== false))
+const enabledAlgorithmOptions = computed(() => {
+  const isBoxCamera = algorithmCamera.value?.vidBoxSerial
+  const runtimeType = isBoxCamera ? 'external_box' : 'local'
+  return algorithmOptions.value.filter(item =>
+    item.algEnabled !== false && item.algRuntimeType === runtimeType
+  )
+})
 
 function parseJson(value) {
   if (!value) return {}
@@ -620,10 +684,20 @@ async function showAlgorithmDialog(row) {
   algorithmCamera.value = row
   algorithmDialogVisible.value = true
   algorithmLoading.value = true
-  selectedAlgorithmIds.value = normalizeAlgorithmList(row.vidAlgorithm).map(item => item.algId)
   try {
     const response = await listAlgorithm({ pageNum: 1, pageSize: 1000 })
     algorithmOptions.value = response.rows || []
+    // 根据摄像头位置过滤已有算法，只保留匹配运行时类型的
+    const isBoxCamera = !!row.vidBoxSerial
+    const expectedType = isBoxCamera ? 'external_box' : 'local'
+    const validOptionIds = new Set(
+      algorithmOptions.value
+        .filter(item => item.algEnabled !== false && item.algRuntimeType === expectedType)
+        .map(item => item.algId)
+    )
+    selectedAlgorithmIds.value = normalizeAlgorithmList(row.vidAlgorithm)
+      .map(item => item.algId)
+      .filter(id => validOptionIds.has(id))
   } catch (error) {
     ElMessage.error('获取算法列表失败')
   } finally {
@@ -1300,6 +1374,31 @@ function closeBatchViewDialog(windowId) {
 
   const dIdx = batchViewDialogs.value.findIndex(d => d.id === windowId)
   if (dIdx > -1) batchViewDialogs.value.splice(dIdx, 1)
+}
+
+// ==================== 本地算法运行记录 ====================
+async function handleRunHistory(row) {
+  runHistoryCamera.value = row
+  runHistoryVisible.value = true
+  runHistoryPage.pageNum = 1
+  await loadRunHistory()
+}
+
+async function loadRunHistory() {
+  if (!runHistoryCamera.value) return
+  runHistoryLoading.value = true
+  try {
+    const res = await getLocalCameraRuns(runHistoryCamera.value.vidId, runHistoryPage.pageNum, runHistoryPage.pageSize)
+    if (res.code === 200 && res.data) {
+      runHistoryList.value = res.data.rows || []
+      runHistoryTotal.value = res.data.total || 0
+    }
+  } catch { /* ignore */ }
+  finally { runHistoryLoading.value = false }
+}
+
+function runStatusLabel(s) {
+  return { running: '运行中', completed: '已完成', failed: '失败', stopped: '已停止' }[s] || s
 }
 
 // ==================== 自动刷新 ====================

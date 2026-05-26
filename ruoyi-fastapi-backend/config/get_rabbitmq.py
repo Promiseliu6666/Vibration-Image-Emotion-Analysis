@@ -9,16 +9,20 @@ class RabbitMQUtil:
     RabbitMQ连接管理类
     """
 
+    _connection: aio_pika.Connection | None = None
+
     @classmethod
     async def create_rabbitmq_pool(cls) -> aio_pika.Connection:
         """
-        创建RabbitMQ连接池
+        获取或创建缓存的RabbitMQ连接（connect_robust 自动处理重连）
 
         :return: RabbitMQ连接对象
         """
+        if cls._connection is not None and not cls._connection.is_closed:
+            return cls._connection
         logger.info('开始连接RabbitMQ...')
         try:
-            connection = await aio_pika.connect_robust(
+            cls._connection = await aio_pika.connect_robust(
                 host=RabbitMQConfig.rabbitmq_host,
                 port=RabbitMQConfig.rabbitmq_port,
                 login=RabbitMQConfig.rabbitmq_username,
@@ -26,7 +30,7 @@ class RabbitMQUtil:
                 virtualhost=RabbitMQConfig.rabbitmq_vhost,
             )
             logger.info('RabbitMQ连接成功')
-            return connection
+            return cls._connection
         except AMQPConnectionError as e:
             logger.error(f'RabbitMQ连接失败: {e}')
             raise
@@ -44,7 +48,25 @@ class RabbitMQUtil:
         """
         if hasattr(app.state, 'rabbitmq') and app.state.rabbitmq:
             await app.state.rabbitmq.close()
+            cls._connection = None
             logger.info('RabbitMQ连接已关闭')
+
+    @classmethod
+    async def publish_message(cls, routing_key: str, message_json: str, exchange_name: str = None):
+        """
+        使用缓存的连接发布消息，自动管理 channel 生命周期。
+        """
+        if exchange_name is None:
+            exchange_name = RabbitMQConfig.rabbitmq_exchange
+        conn = await cls.create_rabbitmq_pool()
+        async with conn.channel() as channel:
+            exchange = await channel.declare_exchange(
+                exchange_name, aio_pika.ExchangeType.DIRECT, durable=True
+            )
+            await exchange.publish(
+                aio_pika.Message(body=message_json.encode()),
+                routing_key=routing_key,
+            )
 
     @classmethod
     async def get_channel_pool(cls, app) -> aio_pika.Channel:

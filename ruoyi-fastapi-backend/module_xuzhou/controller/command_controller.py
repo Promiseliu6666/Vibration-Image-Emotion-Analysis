@@ -23,7 +23,7 @@ from module_xuzhou.service.video_service import VideoService
 from utils.log_util import logger
 from utils.message_util import RabbitMQService
 from utils.response_util import ResponseUtil
-from config.env import SRSConfig, RabbitMQConfig
+from config.env import SRSConfig
 from config.get_rabbitmq import RabbitMQUtil
 from config.get_srs import SRSUtil
 
@@ -240,18 +240,8 @@ async def save_device_status(message: dict):
                             'stop_time': datetime.now().isoformat()
                         }
                         message_json = json.dumps(message_data, ensure_ascii=False)
-                        
-                        connection = await RabbitMQUtil.create_rabbitmq_pool()
-                        async with connection:
-                            channel = await connection.channel()
-                            exchange = await channel.declare_exchange(
-                                RabbitMQConfig.rabbitmq_exchange, aio_pika.ExchangeType.DIRECT, durable=True
-                            )
-                            await exchange.publish(
-                                aio_pika.Message(body=message_json.encode()), 
-                                routing_key=algorithm_service
-                            )
-                            logger.info(f'成功发送停止消息: {message_json}')
+                        await RabbitMQUtil.publish_message(algorithm_service, message_json)
+                        logger.info(f'成功发送停止消息: {message_json}')
 
         except Exception as e:
             logger.error(f"检查自动停止失败: {e}")
@@ -666,14 +656,14 @@ async def get_device_status_cache(request: Request, vid_id: int = None):
         return ResponseUtil.error(msg=f'获取设备状态失败: {str(e)}')
 
 
-@commandController.get('/boxes', summary='获取在线盒子列表')
+@commandController.get('/boxes', summary='获取在线盒子列表（含算法信息）')
 @integration_log(
     title='获取在线盒子列表',
     system_name='徐州指令管理系统',
     business_type=BusinessType.OTHER,
 )
-async def get_boxes(request: Request):
-    """获取已注册上线的盒子列表"""
+async def get_boxes(request: Request, query_db: AsyncSession = Depends(get_db)):
+    """获取已注册上线的盒子列表，在线盒子附带摄像头和算法信息"""
     cleanup_stale_boxes()
     now = datetime.now().timestamp()
     online = {}
@@ -687,12 +677,68 @@ async def get_boxes(request: Request):
             online[serial] = info
         else:
             offline[serial] = info
+
+    # 为在线盒子加载绑定的摄像头和算法信息
+    online_list = []
+    for serial, box_info in online.items():
+        box_data = dict(box_info)
+        try:
+            cameras = await _get_box_cameras_with_algorithms(query_db, serial)
+            box_data['cameras'] = cameras
+            box_data['cameraCount'] = len(cameras)
+        except Exception as e:
+            logger.error(f'加载盒子 {serial} 摄像头信息失败: {e}')
+            box_data['cameras'] = []
+            box_data['cameraCount'] = 0
+        online_list.append(box_data)
+
     return ResponseUtil.success(data={
-        'online': list(online.values()),
+        'online': online_list,
         'offline': list(offline.values()),
-        'online_count': len(online),
+        'online_count': len(online_list),
         'total': len(box_registry),
     })
+
+
+async def _get_box_cameras_with_algorithms(query_db: AsyncSession, box_serial: str) -> list[dict]:
+    """查询绑定到指定盒子的摄像头及其算法配置和运行状态"""
+    from sqlalchemy import select
+    from module_xuzhou.entity.do.video_do import XuzhouVideo
+
+    result = await query_db.execute(
+        select(XuzhouVideo).where(XuzhouVideo.vid_box_serial == str(box_serial))
+    )
+    cameras = result.scalars().all()
+
+    camera_list = []
+    for cam in cameras:
+        video_dict = {
+            'vid_id': cam.vid_id,
+            'vid_name': cam.vid_name,
+            'vid_serial': cam.vid_serial,
+            'vid_type': cam.vid_type,
+            'vid_algorithm': cam.vid_algorithm,
+        }
+        bindings = AlgorithmRuntimeService.resolve_camera_algorithms(video_dict)
+        algorithms = []
+        for b in bindings:
+            run = algorithm_run_registry.get_run(b.vid_id, b.algorithm_code)
+            alg_status = run.status if run else 'stopped'
+            algorithms.append({
+                'algorithmCode': b.algorithm_code,
+                'algorithmName': b.algorithm_name,
+                'runtimeType': b.runtime_type,
+                'status': alg_status,
+            })
+        camera_list.append({
+            'vidId': cam.vid_id,
+            'vidName': cam.vid_name or f'摄像头{cam.vid_id}',
+            'vidSerial': cam.vid_serial or '',
+            'vidType': cam.vid_type or '',
+            'algorithms': algorithms,
+        })
+
+    return camera_list
 
 
 @commandController.get('/camera_stream_url/{vid_id}', summary='获取盒子摄像头实时流地址')
@@ -814,6 +860,19 @@ async def local_camera_stop(vid_id: int):
 async def local_camera_status(vid_id: int):
     from module_xuzhou.service.local_camera_service import local_camera_manager
     return ResponseUtil.success(data=local_camera_manager.get_status(vid_id))
+
+
+@commandController.get('/local_camera/runs', summary='本地算法运行记录')
+async def local_camera_runs(vid_id: int, page_num: int = 1, page_size: int = 20):
+    """查询指定摄像头的本地算法运行记录"""
+    from module_xuzhou.dao.local_algorithm_run_log_dao import LocalAlgorithmRunLogDao
+    from module_xuzhou.entity.vo.local_algorithm_run_log_vo import LocalAlgorithmRunLogQueryModel
+    from config.database import AsyncSessionLocal
+
+    query = LocalAlgorithmRunLogQueryModel(vid_id=vid_id, page_num=page_num, page_size=page_size)
+    async with AsyncSessionLocal() as session:
+        result = await LocalAlgorithmRunLogDao.list_by_vid(session, query, is_page=True)
+    return ResponseUtil.success(data=result, msg='获取运行记录成功')
 
 
 @commandController.get('/local_camera/snapshot/{vid_id}', summary='本地摄像头实时快照')

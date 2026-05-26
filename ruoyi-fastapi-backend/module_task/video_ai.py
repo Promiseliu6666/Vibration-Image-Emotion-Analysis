@@ -1,9 +1,7 @@
 import json
-import aio_pika
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from config.database import AsyncSessionLocal
-from config.env import RabbitMQConfig
 from config.get_rabbitmq import RabbitMQUtil
 from module_xuzhou.service.video_service import VideoService
 from module_xuzhou.dao.alg_dao import AlgDao
@@ -99,19 +97,10 @@ async def process_single_video(db: AsyncSession, vid_serial):
         }
         
         message_json = json.dumps(message_data, ensure_ascii=False)
-        
+
         # 发送消息到RabbitMQ
-        connection = await RabbitMQUtil.create_rabbitmq_pool()
-        async with connection:
-            channel = await connection.channel()
-            exchange = await channel.declare_exchange(
-                RabbitMQConfig.rabbitmq_exchange, aio_pika.ExchangeType.DIRECT, durable=True
-            )
-            await exchange.publish(
-                aio_pika.Message(body=message_json.encode()), 
-                routing_key=algorithm_service
-            )
-            logger.info(f'成功推送视频配置到消息队列: {message_json}')
+        await RabbitMQUtil.publish_message(algorithm_service, message_json)
+        logger.info(f'成功推送视频配置到消息队列: {message_json}')
 
     except Exception as e:
         logger.error(f"处理视频 {vid_serial} 失败: {e}")

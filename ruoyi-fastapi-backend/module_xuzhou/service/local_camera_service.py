@@ -7,7 +7,6 @@ Supports:
   - RTSP / file   → OpenCV can also read these; otherwise SRS/FLV is used
 """
 
-import asyncio
 import threading
 import time
 
@@ -18,6 +17,8 @@ import numpy as np
 
 class LocalCameraManager:
     """Manages OpenCV captures for server-local cameras."""
+
+    MAX_CAMERAS = 8
 
     def __init__(self):
         self._captures: dict[int, cv2.VideoCapture] = {}
@@ -55,6 +56,9 @@ class LocalCameraManager:
         """Launch OpenCV capture.  Returns empty string on success, error message on failure."""
         if vid_id in self._captures:
             return ""
+
+        if len(self._captures) >= self.MAX_CAMERAS:
+            return f"已达到最大摄像头数量限制 ({self.MAX_CAMERAS})"
 
         # USB: source is a device index like "0" → cv2.VideoCapture(0)
         # The box convention passes "4" for /dev/video4; on Windows we try

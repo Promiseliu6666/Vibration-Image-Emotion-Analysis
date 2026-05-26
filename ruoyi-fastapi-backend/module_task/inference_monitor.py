@@ -378,19 +378,10 @@ class InferenceMonitor:
             }
             
             message_json = json.dumps(message_data, ensure_ascii=False)
-            
+
             # 发送停止消息到RabbitMQ
-            connection = await RabbitMQUtil.create_rabbitmq_pool()
-            async with connection:
-                channel = await connection.channel()
-                exchange = await channel.declare_exchange(
-                    aio_pika.ExchangeType.DIRECT, durable=True
-                )
-                await exchange.publish(
-                    aio_pika.Message(body=message_json.encode()), 
-                    routing_key=self.algorithm_service
-                )
-                logger.info(f'成功发送停止消息到消息队列: {message_json}')
+            await RabbitMQUtil.publish_message(self.algorithm_service, message_json)
+            logger.info(f'成功发送停止消息到消息队列: {message_json}')
             
             # 更新任务状态
             if vid_id in self.running_tasks:

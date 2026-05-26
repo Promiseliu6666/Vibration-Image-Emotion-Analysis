@@ -51,6 +51,23 @@
           </el-tooltip>
         </template>
       </el-table-column>
+      <el-table-column label="算法" min-width="160">
+        <template #default="{ row }">
+          <div v-if="boxAlgorithms[row.vidId] && boxAlgorithms[row.vidId].length > 0" class="alg-tags">
+            <el-tag
+              v-for="alg in boxAlgorithms[row.vidId]"
+              :key="alg.algorithmCode"
+              :type="alg.status === 'running' ? 'success' : 'info'"
+              size="small"
+              style="margin-right:4px;margin-bottom:2px"
+            >
+              {{ alg.algorithmName || alg.algorithmCode }}
+              <span class="alg-dot" :style="{color: alg.status === 'running' ? '#67c23a' : '#909399'}">{{ alg.status === 'running' ? '●' : '○' }}</span>
+            </el-tag>
+          </div>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
       <el-table-column label="运行状态" width="100" align="center">
         <template #default="{ row }">
           <el-tooltip :content="row.deviceErrorMessage || ''" placement="top" :disabled="!row.deviceErrorMessage">
@@ -120,6 +137,7 @@ const loadingBoxes = ref(false)
 const selectedBox = ref('')
 const onlineBoxes = ref([])
 const allCameras = ref([])
+const boxAlgorithms = ref({})  // vidId → algorithms[]
 const actionLoading = reactive({})
 const previewVisible = ref(false)
 const previewCamera = ref(null)
@@ -168,6 +186,14 @@ async function fetchBoxes() {
     const res = await listBoxes()
     if (res.code === 200 && res.data) {
       onlineBoxes.value = [...(res.data.online || []), ...(res.data.offline || [])]
+      // 从在线盒子的 cameras 数据中提取算法信息
+      const algMap = {}
+      ;(res.data.online || []).forEach(box => {
+        ;(box.cameras || []).forEach(cam => {
+          algMap[cam.vidId] = cam.algorithms || []
+        })
+      })
+      boxAlgorithms.value = algMap
     }
   } catch { /* ignore */ }
   finally { loadingBoxes.value = false }
@@ -316,6 +342,8 @@ onMounted(async () => {
 .box-test-container { padding: 20px; }
 .mb4 { margin-bottom: 16px; }
 .label-text { font-size: 15px; font-weight: 500; }
+.alg-dot { font-size: 10px; margin-left: 2px; }
+.alg-tags { display: flex; flex-wrap: wrap; align-items: center; }
 .preview-container {
   position: relative; width: 100%; height: 50vh;
   background: #000; border-radius: 8px; display: flex; justify-content: center; align-items: center; overflow: hidden;

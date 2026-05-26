@@ -96,3 +96,12 @@ export function getLocalCameraSnapshot(vidId) {
     responseType: 'blob'
   })
 }
+
+// 获取本地算法运行记录
+export function getLocalCameraRuns(vidId, pageNum = 1, pageSize = 20) {
+  return request({
+    url: '/xuzhou/command/local_camera/runs',
+    method: 'get',
+    params: { vid_id: vidId, page_num: pageNum, page_size: pageSize }
+  })
+}

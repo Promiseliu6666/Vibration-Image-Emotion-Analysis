@@ -21,6 +21,8 @@ from module_xuzhou.service.video_service import VideoService
 from module_xuzhou.dao.analysis_dao import BinhuaAnalysisDao
 from module_xuzhou.entity.vo.analysis_vo import BinhuaAnalysisModel
 from algorithm.runtime_service import AlgorithmRuntimeService, algorithm_run_registry
+from module_xuzhou.dao.local_algorithm_run_log_dao import LocalAlgorithmRunLogDao
+from module_xuzhou.entity.vo.local_algorithm_run_log_vo import LocalAlgorithmRunLogModel
 from hik_vision.email_service import send_analysis_email
 from hik_vision.local_video_analysis import LocalVideoAnalysisCapabilities
 
@@ -125,8 +127,6 @@ LOST_CHECK_INTERVAL = 20
 RECOGNIZE_TIMEOUT = 3.0
 RECOGNIZE_MIN_GAP_SECONDS = 2.5
 
-# Limit concurrent face compare tasks to avoid blocking the whole event loop / worker.
-face_compare_semaphore = asyncio.Semaphore(1)
 
 
 def get_camera_cap(source: str, camera_key: str = None):
@@ -203,7 +203,9 @@ def _new_analysis_state() -> dict:
         "current_video_path": None,
         "video_frame_count": 0,
         "recognizing": False,
-        "last_recognize_at": 0.0
+        "last_recognize_at": 0.0,
+        "face_compare_semaphore": asyncio.Semaphore(1),
+        "current_run_log_id": None,
     }
 
 
@@ -448,7 +450,7 @@ async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, 
 
         async with AsyncSessionLocal() as recognition_db:
             compare_results = [{}]
-            async with face_compare_semaphore:
+            async with state["face_compare_semaphore"]:
                 compare_results = await asyncio.wait_for(
                     PeopleService.face_compare_by_face_crop_services(
                         recognition_db, face_crop, group_id=1, threshold=SIMILARITY_THRESHOLD
@@ -524,16 +526,21 @@ async def generate_video_stream(
             enable_happiness_analysis=False,
         )
     )
+    _local_algorithm_code = AlgorithmRuntimeService.LOCAL_REALTIME_ALGORITHM_CODE
+    _local_algorithm_name = AlgorithmRuntimeService.LOCAL_REALTIME_ALGORITHM_NAME
     if vid_id is not None:
         video_detail = await VideoService.video_detail_services(query_db, vid_id)
         local_capabilities = LocalVideoAnalysisCapabilities.from_video_detail(video_detail)
         local_analysis_enabled = local_capabilities.enable_local_worker
-        for binding in [
-            binding
-            for binding in AlgorithmRuntimeService.resolve_camera_algorithms(video_detail)
-            if binding.runtime_type == "local"
-        ]:
+        local_bindings = [
+            b for b in AlgorithmRuntimeService.resolve_camera_algorithms(video_detail)
+            if b.runtime_type == "local"
+        ]
+        for binding in local_bindings:
             algorithm_run_registry.start_run(binding)
+        if local_bindings:
+            _local_algorithm_code = local_bindings[0].algorithm_code
+            _local_algorithm_name = local_bindings[0].algorithm_name
     print(
         f"[实时分析] camera_key={camera_key}, source={source}, vid_id={vid_id}, "
         f"capabilities={local_capabilities}"
@@ -553,10 +560,41 @@ async def generate_video_stream(
     _shared_frame = None
     _analysis_task = None
 
+    async def _write_run_log(camera_id: int | None, code: str, name: str, st: str,
+                             run_log_id: int | None = None, err: str = None) -> int | None:
+        if camera_id is None:
+            return None
+        try:
+            async with AsyncSessionLocal() as log_db:
+                if run_log_id is None:
+                    model = LocalAlgorithmRunLogModel(
+                        vid_id=camera_id, algorithm_code=code, algorithm_name=name,
+                        status=st, start_time=datetime.now(),
+                    )
+                    new_id = await LocalAlgorithmRunLogDao.create(log_db, model)
+                    await log_db.commit()
+                    return new_id
+                else:
+                    await LocalAlgorithmRunLogDao.update_status(
+                        log_db, run_log_id, st, end_time=datetime.now(), error_message=err,
+                    )
+                    await log_db.commit()
+        except Exception:
+            pass
+        return None
+
+
     async def analysis_worker():
         """后台独立任务：处理所有耗时计算（人脸检测/识别/振动分析/录制），不阻塞 MJPEG 流"""
         analysis_count = 0
         recognize_task = None
+
+        # 写入运行记录
+        if local_analysis_enabled and vid_id is not None:
+            state["current_run_log_id"] = await _write_run_log(
+                vid_id, _local_algorithm_code, _local_algorithm_name, "running"
+            )
+
         try:
             while active_clients[camera_key] > 0:
                 frame = _shared_frame
@@ -695,6 +733,16 @@ async def generate_video_stream(
                                 state["current_video_path"] = mp4_path
                                 await persist_analysis_result(source, state, final_results, mp4_path)
 
+                                # 标记本轮分析完成，并为下一轮创建新的运行记录
+                                if state.get("current_run_log_id") is not None:
+                                    await _write_run_log(
+                                        vid_id, _local_algorithm_code, _local_algorithm_name,
+                                        "completed", run_log_id=state["current_run_log_id"],
+                                    )
+                                    state["current_run_log_id"] = await _write_run_log(
+                                        vid_id, _local_algorithm_code, _local_algorithm_name, "running",
+                                    )
+
                                 # 低幸福指数预警邮件（在后台任务内直接 sleep 后发送，避免嵌套 create_task）
                                 happiness_index = float(final_results.get("e12", 0.0))
                                 if final_person_id and final_person_name and final_person_name != "Unknown" and happiness_index < 60:
@@ -717,6 +765,12 @@ async def generate_video_stream(
         except Exception as e:
             print(f"[{source}] analysis_worker 异常: {e}")
             traceback.print_exc()
+            if local_analysis_enabled and state.get("current_run_log_id") is not None:
+                await _write_run_log(
+                    vid_id, _local_algorithm_code, _local_algorithm_name,
+                    "failed", run_log_id=state["current_run_log_id"], err=str(e),
+                )
+                state["current_run_log_id"] = None
         finally:
             if recognize_task is not None and not recognize_task.done():
                 recognize_task.cancel()
@@ -781,6 +835,11 @@ async def generate_video_stream(
                     global_caps[camera_key] = None
                 if vid_id is not None:
                     algorithm_run_registry.stop_camera_runs(vid_id)
+                if state.get("current_run_log_id") is not None:
+                    await _write_run_log(
+                        vid_id, _local_algorithm_code, _local_algorithm_name,
+                        "stopped", run_log_id=state["current_run_log_id"],
+                    )
                 reset_analysis_state(camera_key)
 
     # 启动后台分析 worker（独立 asyncio Task，不阻塞 MJPEG 流）
