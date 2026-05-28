@@ -128,6 +128,10 @@ class CameraManager:
             capture_source = f"/dev/video{stream_url}"
         try:
             cap = cv2.VideoCapture(capture_source)
+            try:
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception:
+                pass
             if not cap.isOpened():
                 state.status = CameraStatus.ERROR
                 state.error_message = f"Failed to open stream: {stream_url}"
@@ -239,12 +243,15 @@ class CameraManager:
 
         DISCONNECT_THRESHOLD = 30
         consecutive_failures = 0
+        frame_count = 0
+        print(f"[DEBUG] camera: read_loop started vid={vid_id}", flush=True)
 
         try:
             stop_event = self._stop_events.get(vid_id)
             while vid_id in self._captures and self._captures.get(vid_id) is cap \
                     and (stop_event is None or not stop_event.is_set()):
                 ret, frame = cap.read()
+                frame_count += 1
                 if not ret:
                     consecutive_failures += 1
                     if consecutive_failures >= DISCONNECT_THRESHOLD and state:
@@ -257,14 +264,19 @@ class CameraManager:
 
                 consecutive_failures = 0
 
-                # store latest frame for snapshot
+                # store original frame for snapshot
                 with self._frame_lock:
                     self._latest_frames[vid_id] = frame.copy()
 
+                # resize for inference
+                infer_frame = cv2.resize(frame, (640, 480)) if frame.shape[1] > 640 else frame
+
                 if state and state.status == CameraStatus.RUNNING:
+                    if frame_count % 150 == 1:
+                        print(f"[DEBUG] camera: frame#{frame_count} vid={vid_id} shape={infer_frame.shape} algo_count={len(state.algorithms)}", flush=True)
                     for cb in self._frame_callbacks:
                         try:
-                            cb(vid_id, frame, state.algorithms)
+                            cb(vid_id, infer_frame, state.algorithms)
                         except Exception:
                             pass
         finally:

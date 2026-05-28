@@ -1097,7 +1097,7 @@ comment on column xuzhou_alg.alg_enabled is '是否启用';
 comment on column xuzhou_alg.alg_update_time is '更新时间';
 comment on table xuzhou_alg is '徐州算法信息表';
 
-insert into xuzhou_alg values(1, '人脸检测', 'v1', 'face_detection', null, '{"proto_path":"algorithm/model/face_detection/v1/deploy.prototxt","confidence":0.55}', 'algorithm/model/face_detection/v1/res10_300x300_ssd_iter_140000.caffemodel', 'local', true, current_timestamp);
-insert into xuzhou_alg values(2, '人脸特征识别', 'v1', 'arcface_recognition', null, '{}', 'algorithm/model/arcface_recognition/v1/w600k_r50.onnx', 'local', true, current_timestamp);
-insert into xuzhou_alg values(3, '实时人脸幸福指数分析', 'v1', 'realtime_face_analysis', null, '{"face_detection":"face_detection:v1","face_recognition":"arcface_recognition:v1"}', null, 'local', true, current_timestamp);
+insert into xuzhou_alg values(1, '人脸检测', 'v1', 'face_detection', null, '{"proto_path":"algorithm/model/face_detection/v1/deploy.prototxt","confidence":0.55}', 'algorithm/model/face_detection/v1/res10_300x300_ssd_iter_140000.caffemodel', 'external_box', true, current_timestamp);
+insert into xuzhou_alg values(2, '人脸特征识别', 'v1', 'arcface_recognition', null, '{}', 'algorithm/model/arcface_recognition/v1/w600k_r50.onnx', 'external_box', true, current_timestamp);
+insert into xuzhou_alg values(3, '实时人脸幸福指数分析', 'v1', 'realtime_face_analysis', null, '{"face_detection":"face_detection:v1","face_recognition":"arcface_recognition:v1"}', null, 'external_box', true, current_timestamp);
 select setval(pg_get_serial_sequence('xuzhou_alg', 'alg_id'), (select max(alg_id) from xuzhou_alg));

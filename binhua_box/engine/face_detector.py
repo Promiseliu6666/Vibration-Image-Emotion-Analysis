@@ -1,0 +1,1 @@
+from engine.face_detector_dnn import FaceDetectorDNN as FaceDetector

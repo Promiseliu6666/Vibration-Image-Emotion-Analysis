@@ -1,11 +1,11 @@
+import os
 import traceback
-from fastapi import Header, status
-from fastapi.responses import StreamingResponse
-import os
-from fastapi import APIRouter, Depends, Request, Body
-from fastapi.responses import FileResponse
+from pathlib import Path
+
+import httpx
+from fastapi import Header, status, APIRouter, Depends, Request, Body, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-import os
 
 from config.enums import BusinessType
 from config.get_db import get_db
@@ -186,7 +186,7 @@ def send_bytes_range_requests(file_obj, start: int, end: int, chunk_size: int = 
                 break
             yield data
             remaining -= len(data)
-@analysis_controller.get('/video/{analysis_id}', summary='获取分析视频文件（强制 MP4 + 增强诊断）')
+@analysis_controller.get('/video/{analysis_id}', summary='获取分析视频文件（支持盒子代理）')
 @integration_log(
     title='获取分析视频文件',
     system_name='徐州人员管理系统',
@@ -203,19 +203,61 @@ async def get_analysis_video(
         if not analysis or not analysis.video_path:
             raise HTTPException(status_code=404, detail="视频文件不存在")
 
-        file_path = os.path.abspath(str(analysis.video_path).strip())
+        video_path = str(analysis.video_path).strip()
+        box_serial = getattr(analysis, 'box_serial', None)
 
+        # 盒子视频：代理到盒子本地 API
+        if box_serial:
+            from module_xuzhou.controller.command_controller import box_registry
+            from module_xuzhou.service.box_network import build_box_base_urls
+
+            box = box_registry.get(str(box_serial))
+            if not box:
+                raise HTTPException(status_code=503, detail=f"盒子 {box_serial} 不在线")
+
+            base_urls = build_box_base_urls(box)
+            if not base_urls:
+                raise HTTPException(status_code=503, detail=f"盒子 {box_serial} IP 未知")
+
+            filename = os.path.basename(video_path) or Path(video_path).name
+            box_video_url = f"{base_urls[0]}/videos/{filename}"
+
+            req_headers = {"Cache-Control": "no-cache"}
+            if range:
+                req_headers["Range"] = range
+
+            logger.info(f"代理盒子视频 - ID:{analysis_id} | box:{box_serial} | url:{box_video_url}")
+
+            async def _proxy_box_video():
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    async with client.stream("GET", box_video_url, headers=req_headers) as resp:
+                        if resp.status_code >= 400:
+                            raise HTTPException(status_code=resp.status_code, detail="盒子视频获取失败")
+                        async for chunk in resp.aiter_bytes(65536):
+                            yield chunk
+
+            proxy_headers = {
+                "Content-Type": "video/mp4",
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "no-cache",
+            }
+            return StreamingResponse(
+                _proxy_box_video(),
+                media_type="video/mp4",
+                headers=proxy_headers,
+                status_code=206 if range else 200,
+            )
+
+        # 服务器本地视频
+        file_path = os.path.abspath(video_path)
         if not os.path.exists(file_path):
             logger.error(f"视频文件不存在: {file_path} (ID: {analysis_id})")
             raise HTTPException(status_code=404, detail="视频文件不存在")
 
         file_size = os.path.getsize(file_path)
-        file_ext = file_path.lower()
-
-        # 强制设置为 video/mp4，让浏览器按 MP4 格式解析
         media_type = "video/mp4"
 
-        logger.info(f"视频请求 - ID:{analysis_id} | 文件:{file_path} | 大小:{file_size} bytes | 扩展名:{file_ext} | Range:{range}")
+        logger.info(f"视频请求 - ID:{analysis_id} | 文件:{file_path} | 大小:{file_size} bytes | Range:{range}")
 
         headers = {
             "Accept-Ranges": "bytes",
@@ -233,10 +275,8 @@ async def get_analysis_video(
                 status_code=200
             )
 
-        # 处理 Range 请求
         start, end = parse_range_header(range, file_size)
         chunk_size = end - start + 1
-
         headers["Content-Length"] = str(chunk_size)
         headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
 

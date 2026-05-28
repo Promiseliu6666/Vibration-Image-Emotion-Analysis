@@ -34,6 +34,9 @@ ALGORITHM_DIR = Path(os.environ.get("ALGORITHM_DIR", BOX_ROOT / "algorithms"))
 MODEL_DIR = Path(os.environ.get("MODEL_DIR", BOX_ROOT / "models"))
 WEIGHT_CACHE_DIR = Path(os.environ.get("WEIGHT_CACHE_DIR", BOX_ROOT / "weights"))
 
+# ── Backend server (for fetching gallery, etc.) ────────────────────────────
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://192.168.0.246:9099")
+
 # ── Runtime limits ────────────────────────────────────────────────────────
 MAX_CONCURRENT_CAMERAS = int(os.environ.get("MAX_CONCURRENT_CAMERAS", "8"))
 HEARTBEAT_INTERVAL = int(os.environ.get("HEARTBEAT_INTERVAL", "5"))  # seconds

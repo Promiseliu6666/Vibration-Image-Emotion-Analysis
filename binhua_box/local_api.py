@@ -5,15 +5,20 @@ Provides endpoints accessible at http://<box_ip>:9100 for operators to
 manage which cameras run and which algorithms are applied, independently
 of backend commands.
 """
+import os
+import re
 from pathlib import Path
 
 import cv2
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from starlette.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import ALGORITHM_DIR, BOX_SERIAL, BOX_NAME, LOCAL_API_HOST, LOCAL_API_PORT
 from models import AlgorithmConfig, CameraStatus
+
+_VIDEO_DIR = Path(__file__).resolve().parent / "videos"
+_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
 # These are injected by main.py before the server starts.
 camera_manager = None    # type: ignore
@@ -191,6 +196,68 @@ async def camera_stream(vid_id: int):
         generate_camera_stream(vid_id),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={"Cache-Control": "no-cache"},
+    )
+
+
+def _parse_range_header(range_header: str | None, file_size: int) -> tuple[int, int] | None:
+    """Parse HTTP Range header, return (start, end) or None."""
+    if not range_header:
+        return None
+    m = re.match(r"bytes=(\d+)-(\d*)", range_header)
+    if not m:
+        return None
+    start = int(m.group(1))
+    end = int(m.group(2)) if m.group(2) else file_size - 1
+    return max(0, start), min(end, file_size - 1)
+
+
+@app.get("/videos/{filename}")
+async def serve_video(filename: str, range: str = Header(None)):
+    """Serve a recorded analysis video file with Range support."""
+    video_path = _VIDEO_DIR / filename
+    if not video_path.exists():
+        raise HTTPException(404, f"Video {filename} not found")
+    file_size = video_path.stat().st_size
+    parsed = _parse_range_header(range, file_size)
+
+    if parsed is None:
+        headers = {
+            "Accept-Ranges": "bytes",
+            "Content-Type": "video/mp4",
+            "Content-Length": str(file_size),
+        }
+        return StreamingResponse(
+            open(str(video_path), "rb"),
+            media_type="video/mp4",
+            headers=headers,
+            status_code=200,
+        )
+
+    start, end = parsed
+    chunk_size = end - start + 1
+
+    def _read_range(path: str, start: int, end: int):
+        with open(path, "rb") as f:
+            f.seek(start)
+            remaining = end - start + 1
+            while remaining > 0:
+                chunk = f.read(min(65536, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Type": "video/mp4",
+        "Content-Length": str(chunk_size),
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+    }
+    return StreamingResponse(
+        _read_range(str(video_path), start, end),
+        media_type="video/mp4",
+        headers=headers,
+        status_code=206,
     )
 
 

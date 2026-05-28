@@ -109,8 +109,7 @@ class SRSUtil:
                 logger.warning(f'SRS API请求失败，状态码: {response.status_code}')
                 return -3
 
-        except requests.exceptions.RequestException as e:
-            logger.warning(f'检查SRS流播放器失败: {str(e)}')
+        except requests.exceptions.RequestException:
             return -4
         except Exception as e:
             logger.error(f'解析SRS API响应失败: {str(e)}')

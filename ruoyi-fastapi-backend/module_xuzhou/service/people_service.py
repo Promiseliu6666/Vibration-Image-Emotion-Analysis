@@ -1,22 +1,12 @@
 import asyncio
-import base64
-import io
 import json
 import os
 import time
 import traceback
-from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
-from io import StringIO
 from typing import Any, Optional
 
-# Reduce backend inference logs (set before importing inference libs when possible).
-os.environ.setdefault("GLOG_minloglevel", "2")
-
 import numpy as np
-import paddle
-from PIL import Image
-from paddlex import create_model
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_xuzhou.dao.people_dao import PeopleDao
@@ -223,6 +213,43 @@ class PeopleService:
             logger.error(traceback.format_exc())
             return [{}]
 
+    @classmethod
+    async def face_compare_by_vector(
+        cls, query_db: AsyncSession, face_vector: list[float], group_id: int, threshold: float = 0.4
+    ) -> list[dict[str, Any]]:
+        """Face compare using a pre-extracted feature vector (from box)."""
+        try:
+            upload_features = np.array(face_vector, dtype=np.float64)
+            norm = np.linalg.norm(upload_features)
+            if norm > 0:
+                upload_features = upload_features / norm
+
+            all_people = await cls._get_group_feature_vectors(query_db, group_id)
+            results: list[dict[str, Any]] = []
+            for person in all_people:
+                person_vector = person.get("vector")
+                if person_vector is None:
+                    continue
+                try:
+                    similarity = float(np.dot(upload_features, person_vector))
+                except ValueError:
+                    continue
+                if similarity >= threshold:
+                    results.append({
+                        "id": person["id"],
+                        "name": person["name"],
+                        "group_id": person["group_id"],
+                        "similarity": round(similarity, 4),
+                        "pics": person["pics"],
+                    })
+
+            results.sort(key=lambda x: x["similarity"], reverse=True)
+            logger.info(f"Face compare by vector finished, matched count={len(results)}")
+            return results if results else [{}]
+        except Exception as e:
+            logger.error(f"Face compare by vector failed: {e}")
+            return [{}]
+
     @staticmethod
     def _calculate_cosine_similarity(features1: np.ndarray, features2: np.ndarray) -> float:
         """
@@ -284,103 +311,18 @@ class PeopleService:
 
 
 class FaceFeatureExtractor:
-    """Face feature extractor."""
+    """Face feature extractor using ArcFace ONNX + OpenCV DNN face detection."""
 
     def __init__(self):
-        # Suppress noisy model-init stdout text like:
-        # "Model files already exist. Using cached files..."
-        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-            self.face_detect_model = create_model(model_name="PP-YOLOE_plus-S_face")
-            self.extract_feature_model = create_model(model_name="ResNet50_face")
-
-    @classmethod
-    def _prepare_image(cls, base64_string: str) -> np.ndarray:
-        if "," in base64_string:
-            base64_string = base64_string.split(",", 1)[1]
-        base64_string = base64_string.strip()
-        image_data = base64.b64decode(base64_string)
-        image = Image.open(io.BytesIO(image_data)).convert("RGB")
-        return np.array(image)
-
-    def _detect_person(self, base64_string: str) -> np.ndarray:
-        image_np: np.ndarray = self._prepare_image(base64_string)
-        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-            results: list = list(self.face_detect_model.predict(image_np))
-        if len(results) == 0:
-            raise InvalidPictureError("No face recognized")
-
-        boxes: list[dict] = results[0]["boxes"]
-        if len(boxes) == 0:
-            raise InvalidPictureError("No face detected")
-
-        largest_box = None
-        largest_area = 0
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box["coordinate"])
-            x1, y1 = max(0, x1), max(0, y1)
-            x2 = min(image_np.shape[1], x2)
-            y2 = min(image_np.shape[0], y2)
-            if x2 > x1 and y2 > y1:
-                area = (x2 - x1) * (y2 - y1)
-                if area > largest_area:
-                    largest_area = area
-                    largest_box = (x1, y1, x2, y2)
-
-        if largest_box is None:
-            raise InvalidPictureError("No valid face area found")
-
-        x1, y1, x2, y2 = largest_box
-        return image_np[y1:y2, x1:x2]
-
-    def extract_large_features(self, base64_string: str) -> np.ndarray:
-        image_np: np.ndarray = self._prepare_image(base64_string)
-        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-            results: list = list(self.face_detect_model.predict(image_np))
-
-        if len(results) != 1:
-            raise InvalidPictureError("Face detection failed")
-
-        boxes: list[dict] = results[0]["boxes"]
-        if len(boxes) == 0:
-            raise InvalidPictureError("No face detected")
-
-        largest_box = None
-        largest_area = 0
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box["coordinate"])
-            x1, y1 = max(0, x1), max(0, y1)
-            x2 = min(image_np.shape[1], x2)
-            y2 = min(image_np.shape[0], y2)
-            if x2 > x1 and y2 > y1:
-                area = (x2 - x1) * (y2 - y1)
-                if area > largest_area:
-                    largest_area = area
-                    largest_box = (x1, y1, x2, y2)
-
-        if largest_box is None:
-            raise InvalidPictureError("No valid face area found")
-
-        x1, y1, x2, y2 = largest_box
-        cropped: np.ndarray = image_np[y1:y2, x1:x2]
-        with paddle.no_grad(), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-            features: list = list(self.extract_feature_model.predict(cropped))
-
-        if len(features) != 1:
-            raise InvalidPictureError("Feature extraction failed")
-        return list(features)[0]["feature"]
+        from module_xuzhou.service import face_feature_worker_onnx as _onnx
+        self._onnx = _onnx
 
     def extract_features(self, base64_string: str) -> np.ndarray:
-        image_np: np.ndarray = self._detect_person(base64_string)
-        with paddle.no_grad(), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-            features: list = list(self.extract_feature_model.predict(image_np))
-        if len(features) == 0:
-            raise InvalidPictureError("No face recognized")
-        return list(features)[0]["feature"]
+        return self._onnx.extract_features(base64_string)
+
+    def extract_large_features(self, base64_string: str) -> np.ndarray:
+        return self._onnx.extract_large_features(base64_string)
 
     def extract_features_from_crop(self, face_crop: np.ndarray) -> np.ndarray:
-        """Extract features from a pre-cropped face image (no detection needed)."""
-        with paddle.no_grad(), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-            features: list = list(self.extract_feature_model.predict(face_crop))
-        if len(features) == 0:
-            raise InvalidPictureError("Face feature extraction failed")
+        return self._onnx.extract_features_from_face_image(face_crop)
         return list(features)[0]["feature"]

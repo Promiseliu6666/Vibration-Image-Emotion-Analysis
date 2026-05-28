@@ -14,6 +14,7 @@ class BinhuaAnalysis(Base):
 
     # 新增字段：分析视频文件路径（相对路径）
     video_path = Column(String(255), nullable=True, comment='分析视频文件路径')
+    box_serial = Column(String(100), nullable=True, comment='所属盒子序列号')
 
     e1 = Column(Float, default=0, comment='e1')
     e2 = Column(Float, default=0, comment='e2')

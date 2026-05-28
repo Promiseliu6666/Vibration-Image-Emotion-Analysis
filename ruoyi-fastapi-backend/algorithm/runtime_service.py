@@ -91,13 +91,7 @@ class AlgorithmRunRegistry:
 class AlgorithmRuntimeService:
     LOCAL_REALTIME_ALGORITHM_CODE = "realtime_face_analysis"
     LOCAL_REALTIME_ALGORITHM_NAME = "实时人脸幸福指数分析"
-    LOCAL_ALGORITHM_CODES = {
-        LOCAL_REALTIME_ALGORITHM_CODE,
-        "face_recognition",
-        "arcface_recognition",
-        "face_detection",
-        "person_recognition",
-    }
+    LOCAL_ALGORITHM_CODES = set()
 
     @classmethod
     def create_local_binding(

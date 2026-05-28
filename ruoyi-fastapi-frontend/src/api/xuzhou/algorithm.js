@@ -12,7 +12,7 @@ export function listAlgorithm(query) {
 // 新增算法
 export function addAlgorithm(data) {
   return request({
-    url: '/xuzhou/algorithm',
+    url: '/xuzhou/algorithm/',
     method: 'post',
     data: data
   })
@@ -21,7 +21,7 @@ export function addAlgorithm(data) {
 // 修改算法
 export function updateAlgorithm(data) {
   return request({
-    url: '/xuzhou/algorithm',
+    url: '/xuzhou/algorithm/',
     method: 'put',
     data: data
   })

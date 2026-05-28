@@ -141,6 +141,28 @@ class AlgDao:
         await db.execute(delete(XuzhouAlg).where(XuzhouAlg.alg_id == alg_id))
 
     @classmethod
+    async def get_alg_by_serial(cls, db: AsyncSession, alg_serial: str):
+        """根据算法序列号获取算法（任意版本）。"""
+        return (await db.execute(
+            select(XuzhouAlg).where(XuzhouAlg.alg_serial == alg_serial)
+        )).scalars().first()
+
+    @classmethod
+    async def get_alg_by_name(cls, db: AsyncSession, alg_name: str):
+        """根据算法名称获取算法。"""
+        return (await db.execute(
+            select(XuzhouAlg).where(XuzhouAlg.alg_name == alg_name)
+        )).scalars().first()
+
+    @classmethod
+    async def create_alg(cls, db: AsyncSession, alg_dict: dict):
+        """直接通过字典创建算法记录，返回新ID。"""
+        db_alg = XuzhouAlg(**alg_dict)
+        db.add(db_alg)
+        await db.flush()
+        return db_alg.alg_id
+
+    @classmethod
     async def get_alg_count(cls, db: AsyncSession):
         """
         获取算法总数量

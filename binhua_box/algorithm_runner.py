@@ -74,21 +74,25 @@ class AlgorithmRunner:
 
             # remove stale
             for key in current_keys - wanted_keys:
+                print(f"[DEBUG] runner: remove algorithm vid={key[0]} code={key[1]}", flush=True)
                 del _loaded[key]
 
             # add new
             for alg in algorithms:
                 key = (vid_id, alg.code)
                 if key not in _loaded:
+                    print(f"[DEBUG] runner: loading algorithm vid={vid_id} code={alg.code}", flush=True)
                     cls = _load_algorithm_class(alg.code)
                     if cls is None:
+                        print(f"[DEBUG] runner: algorithm class not found: {alg.code}", flush=True)
                         continue
                     try:
                         instance = cls(alg.params)
                         wrapper = AlgorithmWrapper(vid_id, alg, instance)
                         _loaded[key] = wrapper
-                    except Exception:
-                        pass
+                        print(f"[DEBUG] runner: algorithm loaded vid={vid_id} code={alg.code} params={alg.params}", flush=True)
+                    except Exception as e:
+                        print(f"[DEBUG] runner: algorithm init failed vid={vid_id} code={alg.code}: {e}", flush=True)
 
     def process_frame(self, vid_id: int, frame: np.ndarray) -> list[InferenceResult]:
         """Run all algorithms bound to vid_id on a single frame."""
@@ -105,6 +109,7 @@ class AlgorithmRunner:
                 output = wrapper.instance.infer(frame)
                 if output is None:
                     continue
+                print(f"[DEBUG] runner: inference result vid={vid_id} code={wrapper.code} keys={list(output.keys()) if isinstance(output, dict) else 'scalar'}", flush=True)
                 image_b64 = None
                 if isinstance(output, dict) and "image" in output:
                     img = output.pop("image")
@@ -120,8 +125,8 @@ class AlgorithmRunner:
                 results.append(result)
                 for cb in self._result_callbacks:
                     cb(result)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[DEBUG] runner: inference error vid={vid_id} code={wrapper.code}: {e}", flush=True)
         return results
 
     def remove_camera(self, vid_id: int) -> None:

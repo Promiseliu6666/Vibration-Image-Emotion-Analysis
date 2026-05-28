@@ -1,3 +1,4 @@
+# ── Ascend NPU box dependencies (CANN pre-installed) ───────────────────
 aio-pika>=9.4.1
 opencv-python-headless>=4.8.0
 numpy>=1.24
@@ -6,3 +7,8 @@ uvicorn>=0.38.0
 httpx>=0.27.0
 pillow>=10.0.0
 psutil>=5.9.0
+scipy>=1.10.0
+
+# ascend-pyacl — version depends on installed CANN version
+# Usually pre-installed with CANN runtime; verify with:
+#   python -c "import acl; print('OK')"

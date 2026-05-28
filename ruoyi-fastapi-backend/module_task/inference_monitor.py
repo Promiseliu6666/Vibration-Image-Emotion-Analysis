@@ -93,6 +93,9 @@ class InferenceMonitor:
             
             for video in video_rows:
                 if video.get('vidAlgorithm'):  # 只有配置了算法的才需要监控
+                        # skip box-managed cameras — box controls its own lifecycle
+                        if video.get('vidBoxSerial'):
+                            continue
                         # 获取对应的定时任务配置
                         job_config = await self.get_video_job_config(session, video.get('vidId'))
                         

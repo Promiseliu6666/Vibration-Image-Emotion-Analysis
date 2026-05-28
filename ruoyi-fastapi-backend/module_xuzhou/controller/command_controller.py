@@ -1,6 +1,8 @@
-import json
 import asyncio
+import base64
+import json
 import time
+import traceback
 from datetime import datetime
 from typing import Any, Optional
 
@@ -71,20 +73,46 @@ def cleanup_stale_boxes():
 
 
 async def save_box_register(message: dict):
-    """处理盒子上线注册/心跳消息"""
+    """处理盒子上线注册/心跳消息，自动录入未知算法"""
     serial = message.get('serial', '')
     if not serial:
         return
+    capabilities = message.get('capabilities', [])
+    logger.info(f"收到盒子注册: serial={serial}, capabilities={capabilities}")
     box_registry[serial] = {
         'serial': serial,
         'box_name': message.get('box_name', f'box_{serial}'),
         'host': message.get('host', ''),
         'ip': message.get('ip', ''),
         'port': message.get('port', 9100),
-        'capabilities': message.get('capabilities', []),
+        'capabilities': capabilities,
         'last_seen': datetime.now().isoformat(),
         'status': 'online',
     }
+
+    # auto-register unknown algorithms into database
+    if capabilities:
+        try:
+            from config.database import AsyncSessionLocal
+            from module_xuzhou.dao.alg_dao import AlgDao
+            async with AsyncSessionLocal() as db:
+                for code in capabilities:
+                    alg_name = f"{code} (盒子-{serial})"
+                    existing = await AlgDao.get_alg_by_name(db, alg_name)
+                    if not existing:
+                        await AlgDao.create_alg(db, {
+                            "alg_name": alg_name,
+                            "alg_serial": str(code),
+                            "alg_version": f"v1-{serial}",
+                            "alg_default_conf": "{}",
+                            "alg_enabled": True,
+                        })
+                        logger.info(f"自动录入盒子算法: {code} (box {serial})")
+                await db.commit()
+        except Exception as e:
+            logger.error(f"自动录入算法失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
 
 async def save_cache_message(message: dict):
@@ -92,6 +120,122 @@ async def save_cache_message(message: dict):
     保存预警消息到数据库
     """
     await AlarmService.save_alarm_message(message)
+    # 异步处理盒子发来的人脸分析结果
+    asyncio.ensure_future(_handle_box_face_results(message))
+
+
+async def _handle_box_face_results(message: dict):
+    """Process face analysis results sent by the box via RabbitMQ alarm messages."""
+    data = message.get("data", [])
+    if not isinstance(data, list):
+        return
+
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+
+        face_vector = item.get("face_vector")
+        face_image_b64 = item.get("face_image") or item.get("image")
+        if not item.get("analysis_completed"):
+            continue
+
+        try:
+            from module_xuzhou.service.people_service import PeopleService
+            from module_xuzhou.service.analysis_service import BinhuaAnalysisService
+            from module_xuzhou.entity.vo.analysis_vo import BinhuaAnalysisModel
+            from config.database import AsyncSessionLocal
+
+            person_name = "Unknown"
+            person_id = None
+            similarity = 0.0
+            box_serial = message.get("serial", "")
+            source = f"盒子-{box_serial}" if box_serial else message.get("key", "unknown")
+            video_path = item.get("video_path", "")
+
+            # check if box already matched locally (supports both old and new field names)
+            box_matched_name = item.get("person_name") or item.get("matched_person_name")
+            if box_matched_name:
+                person_name = box_matched_name
+                person_id = item.get("person_id") or item.get("matched_person_id")
+                similarity = item.get("similarity") or item.get("matched_similarity", 0.0)
+                logger.info(
+                    f"Box pre-matched: {person_name} (id={person_id}), "
+                    f"similarity={similarity:.3f}"
+                )
+            else:
+                async with AsyncSessionLocal() as db:
+                    compare_results = None
+                    if face_vector:
+                        compare_results = await PeopleService.face_compare_by_vector(
+                            db, face_vector, group_id=1, threshold=0.4
+                        )
+                    if (not compare_results or not compare_results[0].get("name")) and face_image_b64:
+                        compare_results = await PeopleService.face_compare_services(
+                            db, face_image_b64, group_id=1, threshold=0.4
+                        )
+
+                    if compare_results and compare_results[0].get("name"):
+                        best = compare_results[0]
+                        person_name = best.get("name", "Unknown")
+                        person_id = best.get("id")
+                        similarity = best.get("similarity", 0.0)
+                        logger.info(
+                            f"Box face matched: {person_name} (id={person_id}), "
+                            f"similarity={similarity:.3f}"
+                        )
+                    else:
+                        logger.info("No face match found for box face crop")
+
+            async with AsyncSessionLocal() as db:
+                e1_e14 = {}
+                for k in range(1, 15):
+                    key = f"e{k}"
+                    if key in item:
+                        e1_e14[key] = float(item[key])
+
+                if e1_e14:
+                    e12 = e1_e14.get("e12", 0.0)
+                    happiness_level = "高" if e12 >= 80 else ("中" if e12 >= 60 else "低")
+                    safety_risk = "低风险" if e12 >= 70 else ("中风险" if e12 >= 40 else "高风险")
+                else:
+                    e12 = 0.0
+                    happiness_level = "未知"
+                    safety_risk = "未知"
+
+                analysis = BinhuaAnalysisModel(
+                    **{
+                        "source": source,
+                        "person_name": person_name,
+                        "person_id": person_id,
+                        "video_path": video_path,
+                        "box_serial": box_serial,
+                        "e1": e1_e14.get("e1", 0.0),
+                        "e2": e1_e14.get("e2", 0.0),
+                        "e3": e1_e14.get("e3", 0.0),
+                        "e4": e1_e14.get("e4", 0.0),
+                        "e5": e1_e14.get("e5", 0.0),
+                        "e6": e1_e14.get("e6", 0.0),
+                        "e7": e1_e14.get("e7", 0.0),
+                        "e8": e1_e14.get("e8", 0.0),
+                        "e9": e1_e14.get("e9", 0.0),
+                        "e10": e1_e14.get("e10", 0.0),
+                        "e11": e1_e14.get("e11", 0.0),
+                        "e12": e1_e14.get("e12", 0.0),
+                        "e13": e1_e14.get("e13", 0.0),
+                        "e14": e1_e14.get("e14", 0.0),
+                        "happiness_index": e12,
+                        "happiness_level": happiness_level,
+                        "safety_risk": safety_risk,
+                    }
+                )
+                await BinhuaAnalysisService.add_analysis_services(db, analysis)
+                logger.info(
+                    f"Box analysis record saved: {person_name}, happiness={e12}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to process box face analysis: {e}")
+            logger.error(traceback.format_exc())
 
 
 async def save_device_status(message: dict):
@@ -910,6 +1054,89 @@ async def local_camera_stream_url(vid_id: int, request: Request):
         'vidId': vid_id,
         'streamUrl': stream_url,
     })
+
+
+@localStreamController.get('/feature_vectors', summary='获取分组的特征向量（供盒子拉取）')
+async def get_feature_vectors(group_id: int, query_db: AsyncSession = Depends(get_db)):
+    """盒子启动时拉取已注册人员的特征向量，用于本地人脸比对。"""
+    from module_xuzhou.service.people_service import PeopleService
+    try:
+        items = await PeopleService._get_group_feature_vectors(query_db, group_id)
+        result = [
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "group_id": p["group_id"],
+                "vector": p["vector"].tolist(),
+            }
+            for p in items
+        ]
+        return ResponseUtil.success(data=result, msg=f'返回 {len(result)} 条特征向量')
+    except Exception as e:
+        logger.error(f'获取特征向量失败: {e}')
+        return ResponseUtil.error(msg=str(e))
+
+
+@localStreamController.get('/box_cameras', summary='获取盒子的摄像头及算法配置（供盒子启动时拉取）')
+async def get_box_cameras(box_serial: str, query_db: AsyncSession = Depends(get_db)):
+    """盒子启动后调用此接口，获取绑定到自己的摄像头列表及算法和RTSP流地址。"""
+    try:
+        from sqlalchemy import select
+        from module_xuzhou.entity.do.video_do import XuzhouVideo
+        from module_xuzhou.dao.alg_dao import AlgDao
+
+        result = await query_db.execute(
+            select(XuzhouVideo).where(XuzhouVideo.vid_box_serial == str(box_serial))
+        )
+        cameras = result.scalars().all()
+
+        enriched = []
+        for cam in cameras:
+            algorithms = []
+            raw_alg = cam.vid_algorithm or []
+            if isinstance(raw_alg, str):
+                try:
+                    raw_alg = json.loads(raw_alg)
+                except json.JSONDecodeError:
+                    raw_alg = []
+            for alg in (raw_alg if isinstance(raw_alg, list) else []):
+                if not isinstance(alg, dict):
+                    continue
+                alg_id = alg.get("algId")
+                if not alg_id:
+                    continue
+                alg_serial = str(alg_id)
+                if str(alg_id).isdigit():
+                    try:
+                        alg_detail = await AlgDao.get_alg_detail_by_id(query_db, int(alg_id))
+                        if alg_detail and alg_detail.alg_serial:
+                            alg_serial = alg_detail.alg_serial
+                    except Exception:
+                        pass
+                alg_config = alg.get("algDefaultConf", {})
+                if isinstance(alg_config, str):
+                    try:
+                        alg_config = json.loads(alg_config)
+                    except json.JSONDecodeError:
+                        alg_config = {}
+                algorithm_info = {"code": alg_serial}
+                if isinstance(alg_config, dict):
+                    algorithm_info.update(alg_config)
+                algorithms.append(algorithm_info)
+
+            enriched.append({
+                "vid_id": cam.vid_id,
+                "vid_serial": cam.vid_serial or "",
+                "vid_name": cam.vid_name or "",
+                "stream_type": cam.vid_type or "rtsp",
+                "stream_url": cam.vid_uri or "",
+                "algorithms": algorithms,
+            })
+
+        return ResponseUtil.success(data=enriched, msg=f'返回 {len(enriched)} 个摄像头')
+    except Exception as e:
+        logger.error(f'获取盒子摄像头列表失败: {e}')
+        return ResponseUtil.error(msg=str(e))
 
 
 @localStreamController.get('/local_camera/stream/{vid_id}', summary='本地摄像头MJPEG视频流')

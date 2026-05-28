@@ -20,6 +20,7 @@ class BinhuaAnalysisModel(BaseModel):
     person_id: Optional[int] = Field(default=None, description='人员ID')
 
     video_path: Optional[str] = Field(default=None, description='分析视频文件路径')
+    box_serial: Optional[str] = Field(default=None, description='所属盒子序列号')
 
     e1: float = Field(default=0.0, description='e1')
     e2: float = Field(default=0.0, description='e2')
@@ -51,6 +52,7 @@ class BinhuaAnalysisUpdateModel(BaseModel):
     person_name: Optional[str] = Field(default=None, description='人名')
     person_id: Optional[int] = Field(default=None, description='人员ID')
     video_path: Optional[str] = Field(default=None, description='分析视频文件路径')
+    box_serial: Optional[str] = Field(default=None, description='所属盒子序列号')
     e1: Optional[float] = Field(default=None, description='e1')
     e2: Optional[float] = Field(default=None, description='e2')
     e3: Optional[float] = Field(default=None, description='e3')

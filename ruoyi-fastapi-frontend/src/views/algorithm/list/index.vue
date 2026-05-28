@@ -49,10 +49,10 @@
       <el-table-column label="算法名称" align="center" prop="algName" :show-overflow-tooltip="true" />
       <el-table-column label="算法编号" align="center" prop="algSerial" :show-overflow-tooltip="true" />
       <el-table-column label="算法版本" align="center" prop="algVersion" :show-overflow-tooltip="true" />
-      <el-table-column label="运行位置" align="center" prop="algRuntimeType" width="110">
+      <el-table-column label="运行位置" align="center" width="140">
         <template #default="scope">
-          <el-tag :type="scope.row.algRuntimeType === 'local' ? 'success' : 'warning'">
-            {{ runtimeTypeLabel(scope.row.algRuntimeType) }}
+          <el-tag :type="runtimeLabel(scope.row.algName) === '本地' ? 'success' : 'warning'">
+            {{ runtimeLabel(scope.row.algName) }}
           </el-tag>
         </template>
       </el-table-column>
@@ -91,12 +91,6 @@
         <el-form-item label="算法名称"><el-input v-model="editForm.algName" /></el-form-item>
         <el-form-item label="算法编号"><el-input v-model="editForm.algSerial" /></el-form-item>
         <el-form-item label="算法版本"><el-input v-model="editForm.algVersion" /></el-form-item>
-        <el-form-item label="运行位置">
-          <el-select v-model="editForm.algRuntimeType" style="width: 100%">
-            <el-option label="本地" value="local" />
-            <el-option label="盒子" value="external_box" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="权重路径"><el-input v-model="editForm.algWeightPath" /></el-form-item>
         <el-form-item label="启用状态"><el-switch v-model="editForm.algEnabled" /></el-form-item>
         <el-form-item label="默认配置"><el-input v-model="editForm.algDefaultConfText" type="textarea" :rows="6" /></el-form-item>
@@ -112,12 +106,6 @@
         <el-form-item label="算法名称"><el-input v-model="uploadForm.algName" /></el-form-item>
         <el-form-item label="算法编号"><el-input v-model="uploadForm.algSerial" /></el-form-item>
         <el-form-item label="算法版本"><el-input v-model="uploadForm.algVersion" /></el-form-item>
-        <el-form-item label="运行位置">
-          <el-select v-model="uploadForm.algRuntimeType" style="width: 100%">
-            <el-option label="本地" value="local" />
-            <el-option label="盒子" value="external_box" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="默认配置"><el-input v-model="uploadForm.algDefaultConf" type="textarea" :rows="5" /></el-form-item>
         <el-form-item label="权重文件">
           <el-upload ref="uploadRef" :auto-upload="false" :limit="1" :on-change="handleWeightSelected" :on-remove="handleWeightRemoved">
@@ -142,7 +130,7 @@
         <el-descriptions-item label="算法名称">{{ detailAlgorithm.algName }}</el-descriptions-item>
         <el-descriptions-item label="算法编号">{{ detailAlgorithm.algSerial }}</el-descriptions-item>
         <el-descriptions-item label="算法版本">{{ detailAlgorithm.algVersion }}</el-descriptions-item>
-        <el-descriptions-item label="运行位置">{{ runtimeTypeLabel(detailAlgorithm.algRuntimeType) }}</el-descriptions-item>
+        <el-descriptions-item label="运行位置">{{ runtimeLabel(detailAlgorithm.algName) }}</el-descriptions-item>
         <el-descriptions-item label="默认配置">
           <pre class="detail-json">{{ prettyJson(detailAlgorithm.algDefaultConf) }}</pre>
         </el-descriptions-item>
@@ -181,7 +169,6 @@ const editForm = reactive({
   algSerial: '',
   algVersion: '',
   algWeightPath: '',
-  algRuntimeType: 'external_box',
   algEnabled: true,
   algDefaultConfText: '{}'
 })
@@ -189,7 +176,6 @@ const uploadForm = reactive({
   algName: '',
   algSerial: '',
   algVersion: '',
-  algRuntimeType: 'external_box',
   algDefaultConf: '{}'
 })
 
@@ -231,8 +217,9 @@ function normalizeAlgorithmList(value) {
   return []
 }
 
-function runtimeTypeLabel(runtimeType) {
-  return runtimeType === 'local' ? '本地' : '盒子'
+function runtimeLabel(algName) {
+  const match = algName?.match(/\(盒子-(.+?)\)/)
+  return match ? match[1] : '本地'
 }
 
 function formatConfigPreview(value) {
@@ -285,7 +272,6 @@ function openEditDialog(row) {
     algSerial: row?.algSerial || '',
     algVersion: row?.algVersion || '',
     algWeightPath: row?.algWeightPath || '',
-    algRuntimeType: row?.algRuntimeType || 'external_box',
     algEnabled: row?.algEnabled !== false,
     algDefaultConfText: JSON.stringify(parseJson(row?.algDefaultConf), null, 2)
   })
@@ -306,7 +292,6 @@ async function saveEdit() {
     algSerial: editForm.algSerial,
     algVersion: editForm.algVersion,
     algWeightPath: editForm.algWeightPath,
-    algRuntimeType: editForm.algRuntimeType,
     algEnabled: editForm.algEnabled,
     algDefaultConf
   }
@@ -321,7 +306,7 @@ async function saveEdit() {
 }
 
 function openUploadDialog() {
-  Object.assign(uploadForm, { algName: '', algSerial: '', algVersion: '', algRuntimeType: 'external_box', algDefaultConf: '{}' })
+  Object.assign(uploadForm, { algName: '', algSerial: '', algVersion: '', algDefaultConf: '{}' })
   uploadFile.value = null
   uploadProgress.value = 0
   uploadDialogVisible.value = true
@@ -347,7 +332,6 @@ async function submitWeightUpload() {
   formData.append('alg_name', uploadForm.algName)
   formData.append('alg_serial', uploadForm.algSerial)
   formData.append('alg_version', uploadForm.algVersion)
-  formData.append('alg_runtime_type', uploadForm.algRuntimeType)
   formData.append('alg_default_conf', uploadForm.algDefaultConf || '{}')
   formData.append('file', uploadFile.value)
   try {
