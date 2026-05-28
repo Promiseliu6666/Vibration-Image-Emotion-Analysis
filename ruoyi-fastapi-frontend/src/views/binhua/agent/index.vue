@@ -90,11 +90,14 @@
               <div
                 v-if="msg.content"
                 class="bubble-text"
-                :class="{ markdown: shouldRenderMarkdown(msg) }"
+                :class="{ markdown: msg.role === 'assistant' }"
               >
-                <div v-if="shouldRenderMarkdown(msg)" v-html="renderMarkdown(msg.content)"></div>
+                <div v-if="msg.role === 'assistant'" v-html="renderMessageContent(msg)"></div>
                 <div v-else v-html="formatPlainText(msg.content)"></div>
                 <span v-if="msg.streaming" class="cursor"></span>
+              </div>
+              <div v-if="msg.streaming && !msg.content" class="thinking-indicator">
+                <span class="dot"></span><span class="dot"></span><span class="dot"></span>
               </div>
               <div class="bubble-time">{{ formatTime(msg.created_time) }}</div>
             </div>
@@ -115,6 +118,20 @@
             <audio :src="previewAudioDataUrl" controls></audio>
             <el-button :icon="Close" circle text @click="removeAudio" />
           </div>
+        </div>
+
+        <div class="quick-actions">
+          <el-button
+            v-for="action in quickActions"
+            :key="action.key"
+            size="small"
+            type="info"
+            plain
+            :disabled="sending"
+            @click="sendQuickAction(action)"
+          >
+            {{ action.label }}
+          </el-button>
         </div>
 
         <div class="input-row">
@@ -185,7 +202,8 @@ import {
   chatWithAgentStream,
   deleteAgentConversation,
   getAgentConversations,
-  getAgentHistory
+  getAgentHistory,
+  getAgentStats
 } from '@/api/binhua/agent'
 
 const STORAGE_KEY = 'agent:lastConversationId'
@@ -196,12 +214,14 @@ const md = new MarkdownIt({
   typographer: true,
   breaks: true,
   highlight(str, lang) {
+    const langClass = lang ? ` class="language-${lang}"` : ''
     if (lang && hljs.getLanguage(lang)) {
       try {
-        return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`
+        const highlighted = hljs.highlight(str, { language: lang, ignoreIllegals: true }).value
+        return `<pre class="hljs"${langClass}><code>${highlighted}</code></pre>`
       } catch (e) {}
     }
-    return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`
+    return `<pre class="hljs"${langClass}><code>${md.utils.escapeHtml(str)}</code></pre>`
   }
 })
 
@@ -226,6 +246,19 @@ const selectedImageFile = ref(null)
 
 const previewAudioDataUrl = ref(null)
 const selectedAudioFile = ref(null)
+
+const quickActions = [
+  { key: 'stats_overview', label: '📊 近7天总体态势', message: '请根据数据概览分析近7天总体态势，关键指标变化和趋势。' },
+  { key: 'top3_risk', label: '⚠️ 高风险人员TOP3', message: '请根据数据分析高风险人员TOP3的情况，说明主要原因和建议。' },
+  { key: 'wow_change', label: '📈 周环比变化', message: '请根据周环比数据分析关键指标的变化趋势，评估整体安全态势是改善还是恶化。' },
+  { key: 'full_report', label: '📋 综合分析报告', message: '请生成一份完整的近7天安全态势综合分析报告，包括总体态势、高风险人员、周环比变化和建议措施。' },
+]
+
+async function sendQuickAction(action) {
+  if (sending.value) return
+  inputMessage.value = action.message
+  await sendMessage()
+}
 
 const isRecording = ref(false)
 const mediaRecorder = ref(null)
@@ -269,7 +302,17 @@ const renderMarkdown = (text = '') => {
   }
 }
 
-const shouldRenderMarkdown = (msg) => msg.role === 'assistant' && !msg.streaming
+const shouldRenderMarkdown = (msg) => msg.role === 'assistant'
+
+const renderMessageContent = (msg) => {
+  if (msg.role !== 'assistant') return formatPlainText(msg.content)
+  // 流式输出时用简单渲染减少闪烁，完成后用完整 markdown
+  try {
+    return md.render(msg.content)
+  } catch (e) {
+    return formatPlainText(msg.content)
+  }
+}
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -919,28 +962,152 @@ onMounted(() => {
 .bubble-text {
   background: #fff;
   border: 1px solid #e7ecf1;
-  border-radius: 10px;
-  padding: 10px 12px;
-  line-height: 1.58;
+  border-radius: 12px;
+  padding: 12px 16px;
+  line-height: 1.62;
   font-size: 14px;
   word-break: break-word;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.15s;
+}
+.bubble-text:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
 }
 
 .message.user .bubble-text {
-  background: #2f88ff;
-  border-color: #2f88ff;
+  background: linear-gradient(135deg, #2f88ff, #1a6fe8);
+  border-color: transparent;
   color: #fff;
+  box-shadow: 0 2px 6px rgba(47, 136, 255, 0.25);
+}
+.message.user .bubble-text:hover {
+  box-shadow: 0 3px 12px rgba(47, 136, 255, 0.32);
 }
 
+.bubble-text.markdown :deep(h1) {
+  font-size: 1.32em;
+  font-weight: 700;
+  margin: 0.8em 0 0.4em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #e8ecf1;
+  color: #1a2332;
+}
+.bubble-text.markdown :deep(h2) {
+  font-size: 1.18em;
+  font-weight: 700;
+  margin: 0.7em 0 0.35em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid #edf1f5;
+  color: #1f2a3a;
+}
+.bubble-text.markdown :deep(h3) {
+  font-size: 1.06em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+  color: #2c3a4e;
+}
+.bubble-text.markdown :deep(h4),
+.bubble-text.markdown :deep(h5),
+.bubble-text.markdown :deep(h6) {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.5em 0 0.25em;
+  color: #3d4d63;
+}
+.bubble-text.markdown :deep(p) {
+  margin: 0.4em 0;
+}
+.bubble-text.markdown :deep(p:first-child) {
+  margin-top: 0;
+}
+.bubble-text.markdown :deep(p:last-child) {
+  margin-bottom: 0;
+}
+.bubble-text.markdown :deep(ul),
+.bubble-text.markdown :deep(ol) {
+  padding-left: 1.6em;
+  margin: 0.35em 0;
+}
+.bubble-text.markdown :deep(li) {
+  margin: 0.15em 0;
+  line-height: 1.55;
+}
+.bubble-text.markdown :deep(blockquote) {
+  margin: 0.5em 0;
+  padding: 6px 14px;
+  border-left: 3px solid #2f88ff;
+  background: #f4f8fc;
+  border-radius: 0 6px 6px 0;
+  color: #4a5c72;
+}
+.bubble-text.markdown :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 13px;
+}
+.bubble-text.markdown :deep(th),
+.bubble-text.markdown :deep(td) {
+  border: 1px solid #dee4ec;
+  padding: 6px 10px;
+  text-align: left;
+}
+.bubble-text.markdown :deep(th) {
+  background: #f4f7fb;
+  font-weight: 600;
+  color: #2c3a4e;
+}
+.bubble-text.markdown :deep(tr:nth-child(even) td) {
+  background: #fafbfd;
+}
+.bubble-text.markdown :deep(hr) {
+  border: none;
+  border-top: 1px solid #e4e9f1;
+  margin: 0.8em 0;
+}
+.bubble-text.markdown :deep(a) {
+  color: #2f88ff;
+  text-decoration: none;
+}
+.bubble-text.markdown :deep(a:hover) {
+  text-decoration: underline;
+}
+.bubble-text.markdown :deep(strong) {
+  font-weight: 700;
+  color: #1a2332;
+}
+.bubble-text.markdown :deep(img) {
+  max-width: 100%;
+  border-radius: 6px;
+  margin: 0.4em 0;
+}
+.bubble-text.markdown :deep(code) {
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 0.88em;
+}
+.bubble-text.markdown :deep(p > code),
+.bubble-text.markdown :deep(li > code),
+.bubble-text.markdown :deep(td > code) {
+  background: #edf1f7;
+  color: #c7254e;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
 .bubble-text.markdown :deep(pre) {
   background: #1f2430;
-  border-radius: 6px;
-  padding: 10px;
+  border-radius: 8px;
+  padding: 14px 16px;
   overflow-x: auto;
+  margin: 0.5em 0;
+  position: relative;
 }
-
-.bubble-text.markdown :deep(code) {
-  font-size: 12px;
+.bubble-text.markdown :deep(pre code) {
+  font-size: 0.82em;
+  line-height: 1.55;
+  color: #cccac2;
+  background: none;
+  padding: 0;
 }
 
 .bubble-time {
@@ -974,6 +1141,25 @@ onMounted(() => {
   border-radius: 6px;
 }
 
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed #e8edf3;
+}
+.quick-actions .el-button {
+  font-size: 12px;
+  border-radius: 14px;
+  padding: 4px 14px;
+  transition: all 0.2s;
+}
+.quick-actions .el-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(47, 136, 255, 0.18);
+}
+
 .input-row {
   display: flex;
   gap: 10px;
@@ -993,12 +1179,35 @@ onMounted(() => {
   margin-left: 2px;
   background: currentColor;
   animation: blink 1s step-end infinite;
+  vertical-align: middle;
 }
 
+.thinking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  margin-top: 4px;
+  background: #f4f7fb;
+  border-radius: 10px;
+}
+.thinking-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #b0bec5;
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+.thinking-indicator .dot:nth-child(1) { animation-delay: 0s; }
+.thinking-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+
 @keyframes blink {
-  50% {
-    opacity: 0;
-  }
+  50% { opacity: 0; }
+}
+@keyframes dotPulse {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
 }
 
 .recording {

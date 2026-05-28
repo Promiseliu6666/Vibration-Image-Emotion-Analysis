@@ -557,10 +557,27 @@ const resetParams = async () => {
 async function fetchCameras() {
   try {
     const res = await listVideo({ pageNum: 1, pageSize: 9999 })
+    console.log('[druid] 摄像头列表API返回:', res)
     if (res.code === 200) {
-      cameraOptions.value = res.rows || []
+      const allCameras = res.rows || []
+      console.log('[druid] 全部摄像头:', allCameras.length, '个')
+      // 优先显示有算法的摄像头，也显示本地未绑定盒子的摄像头
+      cameraOptions.value = allCameras.filter(cam => {
+        const hasAlg = cam.vidAlgorithm?.length
+        const isLocal = cam.vidType === 'local' && !cam.vidBoxSerial
+        return hasAlg || isLocal
+      })
+      console.log('[druid] 过滤后摄像头:', cameraOptions.value.length, '个', cameraOptions.value.map(c => ({ id: c.vidId, name: c.vidName, alg: c.vidAlgorithm })))
+      if (cameraOptions.value.length === 0) {
+        ElMessage.warning('没有可用的摄像头，请先在摄像头管理中配置算法')
+      }
+    } else {
+      console.error('[druid] 摄像头列表返回code异常:', res.code, res.msg)
     }
-  } catch { /* ignore */ }
+  } catch (e) {
+    console.error('[druid] 获取摄像头列表失败:', e)
+    ElMessage.error('获取摄像头列表失败，请检查网络或登录状态')
+  }
 }
 
 function onCameraChange() {

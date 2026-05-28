@@ -78,10 +78,15 @@ export function deleteAgentConversation(conversationId) {
   return request({ url: `/agent/conversation/${conversationId}`, method: 'delete' })
 }
 
+export function getAgentStats() {
+  return request({ url: '/agent/stats', method: 'get' })
+}
+
 export default {
   chatWithAgentStream,
   chatWithAgent,
   getAgentHistory,
   getAgentConversations,
-  deleteAgentConversation
+  deleteAgentConversation,
+  getAgentStats
 }

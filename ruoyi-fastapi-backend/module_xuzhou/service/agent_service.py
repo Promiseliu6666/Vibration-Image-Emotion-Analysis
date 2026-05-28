@@ -179,6 +179,17 @@ class AgentService:
 
         return {}
 
+    STATS_KEYWORDS = [
+        "态势", "统计", "趋势", "风险", "分析数据", "周环比", "环比",
+        "高风险", "幸福指数", "安全", "人员分析", "数据分析", "报表",
+        "dashboard", "summary", "overview", "analytics", "trend", "risk",
+        "happiness", "top", "ranking", "对比", "变化",
+    ]
+
+    @classmethod
+    def _should_inject_stats(cls, user_input: str) -> bool:
+        return any(kw in user_input.lower() for kw in cls.STATS_KEYWORDS)
+
     @classmethod
     async def stream_chat(
         cls,
@@ -239,7 +250,17 @@ class AgentService:
                 limit=cls.CONTEXT_MAX_MESSAGES + 8,
             )
             history_context = [msg for msg in history_messages if msg.id != current_user_message_id]
-            messages = cls._build_context_messages(history_context, system_prompt)
+            # 根据用户意图注入数据统计上下文
+            effective_prompt = system_prompt
+            if cls._should_inject_stats(user_content):
+                try:
+                    stats = await cls.get_analysis_stats(query_db)
+                    stats_text = cls.build_stats_context(stats)
+                    if stats_text:
+                        effective_prompt = system_prompt + stats_text
+                except Exception as e:
+                    logger.warning(f"Failed to inject analysis stats: {e}")
+            messages = cls._build_context_messages(history_context, effective_prompt)
 
             current_message_content: list[dict] = []
             if user_content and user_content not in cls.PLACEHOLDERS:
@@ -450,3 +471,83 @@ class AgentService:
             query_object=query_object,
             is_page=is_page,
         )
+
+    @classmethod
+    async def get_analysis_stats(cls, query_db: AsyncSession) -> dict:
+        """获取数据分析统计数据：近7天态势、高风险TOP3、周环比"""
+        from module_xuzhou.dao.analysis_dao import BinhuaAnalysisDao
+
+        stats_7days = await BinhuaAnalysisDao.get_stats_7days(query_db)
+        top3 = await BinhuaAnalysisDao.get_top3_high_risk(query_db, days=7)
+        wow = await BinhuaAnalysisDao.get_wow_comparison(query_db)
+
+        return {
+            "last_7_days": stats_7days,
+            "top3_high_risk": top3,
+            "week_over_week": wow,
+        }
+
+    @classmethod
+    def build_stats_context(cls, stats: dict) -> str:
+        """将统计数据构建为 AI 可读的上下文文本"""
+        if not stats:
+            return ""
+
+        s7 = stats.get("last_7_days", {})
+        top3 = stats.get("top3_high_risk", [])
+        wow = stats.get("week_over_week", {})
+
+        lines = ["\n## 系统数据概览（近7天）\n"]
+
+        # 总体态势
+        lines.append("### 总体态势")
+        lines.append(f"- 总分析次数：{s7.get('total', 0)}")
+        lines.append(f"- 平均幸福指数：{s7.get('avg_happiness', 0)}")
+        lines.append(f"- 平均攻击性(e1)：{s7.get('avg_e1_aggression', 0)}")
+        lines.append(f"- 平均压力(e2)：{s7.get('avg_e2_stress', 0)}")
+        lines.append(f"- 平均焦虑(e3)：{s7.get('avg_e3_anxiety', 0)}")
+        lines.append(f"- 平均可疑度(e4)：{s7.get('avg_e4_suspicion', 0)}")
+        lines.append(f"- 平均稳定性(e14)：{s7.get('avg_e14_stability', 0)}")
+
+        risk_dist = s7.get("risk_distribution", {})
+        if risk_dist:
+            lines.append(f"- 安全风险分布：{risk_dist}")
+
+        daily = s7.get("daily_trend", [])
+        if daily:
+            lines.append("- 日趋势：")
+            for d in daily:
+                lines.append(f"  {d['date']}: {d['count']}次分析, 均幸福指数{d['avg_happiness']}")
+
+        # 高风险TOP3
+        if top3:
+            lines.append("\n### 高风险人员 TOP3")
+            for i, p in enumerate(top3, 1):
+                lines.append(
+                    f"{i}. {p['person_name']}(ID:{p.get('person_id', 'N/A')}) "
+                    f"分析{p['analysis_count']}次, "
+                    f"均幸福指数{p['avg_happiness']}, "
+                    f"均可疑度{p['avg_e4_suspicion']}, "
+                    f"均压力{p['avg_e2_stress']}"
+                )
+
+        # 周环比
+        tw = wow.get("this_week", {})
+        lw = wow.get("last_week", {})
+        ch = wow.get("changes", {})
+        if tw and lw:
+            lines.append("\n### 周环比变化")
+            lines.append(f"- 本周分析次数：{tw.get('total', 0)} vs 上周 {lw.get('total', 0)}（{_fmt_pct(ch.get('total_pct'))}）")
+            lines.append(f"- 本周均幸福指数：{tw.get('avg_happiness', 0)} vs 上周 {lw.get('avg_happiness', 0)}（{_fmt_pct(ch.get('happiness_pct'))}）")
+            lines.append(f"- 本周均压力(e2)：{tw.get('avg_e2', 0)} vs 上周 {lw.get('avg_e2', 0)}（{_fmt_pct(ch.get('e2_stress_pct'))}）")
+            lines.append(f"- 本周均焦虑(e3)：{tw.get('avg_e3', 0)} vs 上周 {lw.get('avg_e3', 0)}（{_fmt_pct(ch.get('e3_anxiety_pct'))}）")
+            lines.append(f"- 本周均稳定性(e14)：{tw.get('avg_e14', 0)} vs 上周 {lw.get('avg_e14', 0)}（{_fmt_pct(ch.get('e14_stability_pct'))}）")
+
+        return "\n".join(lines) + "\n"
+
+
+def _fmt_pct(val):
+    if val is None:
+        return "N/A"
+    sign = "+" if val > 0 else ""
+    return f"{sign}{val}%"

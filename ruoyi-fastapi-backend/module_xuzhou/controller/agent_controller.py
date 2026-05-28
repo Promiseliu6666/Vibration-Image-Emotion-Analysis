@@ -186,6 +186,22 @@ async def get_agent_message_list(
         return ResponseUtil.error(msg=f"Query failed: {str(e)}")
 
 
+@agent_controller.get("/stats", summary="Get analysis statistics")
+async def get_agent_stats(
+    request: Request,
+    query_db: AsyncSession = Depends(get_db),
+):
+    """返回近7天总体态势、高风险人员TOP3、周环比变化"""
+    try:
+        stats = await AgentService.get_analysis_stats(query_db)
+        stats_text = AgentService.build_stats_context(stats)
+        return ResponseUtil.success(data={**stats, "context_text": stats_text})
+    except Exception as e:
+        logger.error(f"Get stats failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        return ResponseUtil.error(msg=f"Get stats failed: {str(e)}")
+
+
 @agent_controller.delete("/conversation/{conversation_id}", summary="Soft delete conversation")
 @integration_log(
     title="Delete Agent Conversation",
