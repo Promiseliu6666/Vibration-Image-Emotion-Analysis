@@ -4,7 +4,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import Header, status, APIRouter, Depends, Request, Body, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.enums import BusinessType
@@ -16,9 +16,11 @@ from module_xuzhou.entity.vo.analysis_vo import (
     BinhuaAnalysisUpdateModel,
     DeleteBinhuaAnalysisModel,
     BinhuaAnalysisPageQueryModel,
+    ExportPersonReportModel,
 )
 from module_xuzhou.service.analysis_service import BinhuaAnalysisService
 from module_xuzhou.dao.analysis_dao import BinhuaAnalysisDao
+from module_xuzhou.error.analysis_error import AnalysisNotFoundError
 from utils.log_util import logger
 from utils.page_util import PageResponseModel
 from utils.response_util import ResponseUtil
@@ -139,6 +141,38 @@ async def delete_analysis(
         logger.error(f'删除分析记录失败: {str(e)}')
         logger.error(traceback.format_exc())
         return ResponseUtil.error(msg=f'删除失败: {str(e)}')
+
+
+@analysis_controller.post('/export-person-report', summary='导出个人心理分析报告 PDF')
+@integration_log(
+    title='导出个人心理分析报告 PDF',
+    system_name='徐州人员管理系统',
+    business_type=BusinessType.OTHER,
+)
+async def export_person_report(
+        request: Request,
+        export_model: ExportPersonReportModel = Body(...),
+        query_db: AsyncSession = Depends(get_db),
+):
+    try:
+        pdf_bytes = await BinhuaAnalysisService.export_person_report(
+            query_db,
+            export_model.analysis_id,
+            export_model.radar_image,
+        )
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=psychological_report.pdf",
+            },
+        )
+    except AnalysisNotFoundError:
+        raise HTTPException(status_code=404, detail='分析记录不存在')
+    except Exception as e:
+        logger.error(f'导出个人报告失败: {str(e)}')
+        logger.error(traceback.format_exc())
+        return ResponseUtil.error(msg=f'导出报告失败: {str(e)}')
 
 
 @analysis_controller.post('/batch-delete', summary='批量删除分析记录')

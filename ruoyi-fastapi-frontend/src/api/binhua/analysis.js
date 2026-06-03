@@ -138,7 +138,15 @@ export async function getVideoBlobUrl(analysisId) {
     throw new Error(`请求失败: ${response.status}`)
   }
 
-  const blob = await response.blob()
+  // 使用 arrayBuffer + 显式 Blob type 避免 streaming response 导致的
+  // MEDIA_ERR_SRC_NOT_SUPPORTED (错误码 4)
+  const contentType = response.headers.get('Content-Type') || 'video/mp4'
+  const arrayBuffer = await response.arrayBuffer()
+  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+    ElMessage.error('视频文件为空')
+    throw new Error('视频文件为空')
+  }
+  const blob = new Blob([arrayBuffer], { type: contentType })
   return URL.createObjectURL(blob)
 }
 

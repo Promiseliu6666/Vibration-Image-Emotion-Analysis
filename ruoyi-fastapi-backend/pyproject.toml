@@ -22,6 +22,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10.1",
     "pymysql>=1.1.1",
     "redis>=5.2.1",
+    "reportlab>=4.5.1",
     "requests>=2.32.3",
     "sqlalchemy[asyncio]>=2.0.38",
     "sqlglot[rs]>=26.6.0",
@@ -30,7 +31,7 @@ dependencies = [
 ]
 
 [[tool.uv.index]]
-url = "https://mirrors.xjtu.edu.cn/pypi/simple"
+url = "https://pypi.org/simple/"
 default = true
 
 [[tool.uv.index]]

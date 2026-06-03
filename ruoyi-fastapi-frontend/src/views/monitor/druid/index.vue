@@ -561,15 +561,11 @@ async function fetchCameras() {
     if (res.code === 200) {
       const allCameras = res.rows || []
       console.log('[druid] 全部摄像头:', allCameras.length, '个')
-      // 优先显示有算法的摄像头，也显示本地未绑定盒子的摄像头
-      cameraOptions.value = allCameras.filter(cam => {
-        const hasAlg = cam.vidAlgorithm?.length
-        const isLocal = cam.vidType === 'local' && !cam.vidBoxSerial
-        return hasAlg || isLocal
-      })
-      console.log('[druid] 过滤后摄像头:', cameraOptions.value.length, '个', cameraOptions.value.map(c => ({ id: c.vidId, name: c.vidName, alg: c.vidAlgorithm })))
+      // 显示所有摄像头，不进行过滤——右上角算法标签标明已配置的算法
+      cameraOptions.value = allCameras
+      console.log('[druid] 摄像头列表:', cameraOptions.value.length, '个', cameraOptions.value.map(c => ({ id: c.vidId, name: c.vidName, alg: c.vidAlgorithmName })))
       if (cameraOptions.value.length === 0) {
-        ElMessage.warning('没有可用的摄像头，请先在摄像头管理中配置算法')
+        ElMessage.warning('没有可用的摄像头，请先在摄像头管理中添加摄像头')
       }
     } else {
       console.error('[druid] 摄像头列表返回code异常:', res.code, res.msg)

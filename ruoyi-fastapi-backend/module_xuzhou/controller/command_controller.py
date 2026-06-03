@@ -22,6 +22,7 @@ from module_xuzhou.dao.alg_dao import AlgDao
 from module_xuzhou.service.alarm_service import AlarmService
 from module_xuzhou.service.box_network import build_box_base_urls
 from module_xuzhou.service.video_service import VideoService
+from module_xuzhou.service.local_camera_service import local_camera_manager
 from utils.log_util import logger
 from utils.message_util import RabbitMQService
 from utils.response_util import ResponseUtil
@@ -185,6 +186,14 @@ async def _handle_box_face_results(message: dict):
                         )
                     else:
                         logger.info("No face match found for box face crop")
+
+            # 仅识别到真实人员时才保存分析记录
+            if person_name == "Unknown" or not person_id:
+                logger.info(
+                    f"Box analysis skipped: person_name={person_name}, "
+                    f"person_id={person_id} — 未识别到人员，不保存"
+                )
+                continue
 
             async with AsyncSessionLocal() as db:
                 e1_e14 = {}
@@ -569,86 +578,34 @@ async def push_video_config(request: Request, push_request: PushVideoConfigReque
         vid_type = video_detail.get('vidType') or video_detail.get('vid_type') or 'rtsp'
         vid_uri = video_detail.get('vidUri') or video_detail.get('vid_uri') or ''
 
-        logger.info(video_detail)
+        logger.info(f"[push_video_config] video_detail={video_detail}")
         resolved_bindings = AlgorithmRuntimeService.resolve_camera_algorithms(video_detail)
+        logger.info(f"[push_video_config] resolved_bindings={[(b.algorithm_code, b.runtime_type) for b in resolved_bindings]}")
         external_bindings = [binding for binding in resolved_bindings if binding.runtime_type == 'external_box']
         runtime_bindings = []
-        # 解析算法信息
+        # 解析算法信息 — 仅发送 external_box 类型的算法到盒子
         algorithms = []
-        if external_bindings:
-            for binding in external_bindings:
-                algorithm_code = binding.algorithm_code
-                if str(algorithm_code).isdigit():
-                    try:
-                        alg_detail = await AlgDao.get_alg_detail_by_id(db, int(algorithm_code))
-                        if alg_detail and alg_detail.alg_serial:
-                            algorithm_code = alg_detail.alg_serial
-                    except Exception as e:
-                        logger.warning(f"Query algorithm by ID {algorithm_code} failed: {e}")
-                algorithm_info = {'code': algorithm_code}
-                algorithm_info.update(binding.params)
-                algorithms.append(algorithm_info)
-                runtime_bindings.append(
-                    AlgorithmRuntimeService.create_external_box_binding(
-                        vid_id=binding.vid_id,
-                        algorithm_code=algorithm_code,
-                        algorithm_name=binding.algorithm_name,
-                        params=binding.params,
-                        priority=binding.priority,
-                    )
-                )
-        elif video_detail.get('vidAlgorithm') or video_detail.get('vid_algorithm'):
-            vid_algorithm = video_detail.get('vidAlgorithm') or video_detail.get('vid_algorithm')
-
-            # 如果是字符串，尝试解析为JSON
-            if isinstance(vid_algorithm, str):
+        for binding in external_bindings:
+            algorithm_code = binding.algorithm_code
+            if str(algorithm_code).isdigit():
                 try:
-                    vid_algorithm = json.loads(vid_algorithm)
-                except json.JSONDecodeError:
-                    logger.error(f'解析视频算法信息失败: {vid_algorithm}')
-                    vid_algorithm = []
-
-            # 格式化算法信息
-            if isinstance(vid_algorithm, list):
-                for alg in vid_algorithm:
-                    if isinstance(alg, dict):
-                        # 获取算法ID
-                        alg_id = alg.get('algId')
-                        if not alg_id:
-                            continue
-
-                        # Determine alg_serial
-                        alg_serial = str(alg_id)
-
-                        # Check if alg_id is a number (ID) or string (Serial)
-                        if str(alg_id).isdigit():
-                            # 从数据库查询算法详细信息获取序列号
-                            try:
-                                alg_detail = await AlgDao.get_alg_detail_by_id(db, int(alg_id))
-                                if alg_detail and alg_detail.alg_serial:
-                                    alg_serial = alg_detail.alg_serial
-                            except Exception as e:
-                                logger.warning(f"Query algorithm by ID {alg_id} failed: {e}")
-
-                        # 获取算法配置信息
-                        alg_config = alg.get('algDefaultConf', {})
-
-                        # 如果配置是字符串，尝试解析为JSON
-                        if isinstance(alg_config, str):
-                            try:
-                                alg_config = json.loads(alg_config)
-                            except json.JSONDecodeError:
-                                alg_config = {}
-
-                        # 构建算法信息
-                        algorithm_info = {
-                            'code': alg_serial,  # 使用算法序列号作为code
-                        }
-
-                        # 动态添加所有配置字段
-                        if isinstance(alg_config, dict):
-                            algorithm_info.update(alg_config)
-                        algorithms.append(algorithm_info)
+                    alg_detail = await AlgDao.get_alg_detail_by_id(db, int(algorithm_code))
+                    if alg_detail and alg_detail.alg_serial:
+                        algorithm_code = alg_detail.alg_serial
+                except Exception as e:
+                    logger.warning(f"Query algorithm by ID {algorithm_code} failed: {e}")
+            algorithm_info = {'code': algorithm_code}
+            algorithm_info.update(binding.params)
+            algorithms.append(algorithm_info)
+            runtime_bindings.append(
+                AlgorithmRuntimeService.create_external_box_binding(
+                    vid_id=binding.vid_id,
+                    algorithm_code=algorithm_code,
+                    algorithm_name=binding.algorithm_name,
+                    params=binding.params,
+                    priority=binding.priority,
+                )
+            )
 
         # 生成随机字符串作为publish_path
         # import uuid
@@ -971,7 +928,7 @@ async def camera_snapshot(vid_id: int, query_db: AsyncSession = Depends(get_db))
 async def local_camera_start(vid_id: int, query_db: AsyncSession = Depends(get_db)):
     """对未绑定盒子的摄像头启动 OpenCV 本地采集。"""
     from module_xuzhou.service.video_service import VideoService
-    from module_xuzhou.service.local_camera_service import local_camera_manager
+
 
     video = await VideoService.video_detail_services(query_db, vid_id)
     if not video:
@@ -995,14 +952,14 @@ async def local_camera_start(vid_id: int, query_db: AsyncSession = Depends(get_d
 
 @commandController.get('/local_camera/stop/{vid_id}', summary='停止本地摄像头采集')
 async def local_camera_stop(vid_id: int):
-    from module_xuzhou.service.local_camera_service import local_camera_manager
+
     local_camera_manager.stop_camera(vid_id)
     return ResponseUtil.success(msg='本地摄像头采集已停止')
 
 
 @commandController.get('/local_camera/status/{vid_id}', summary='本地摄像头采集状态')
 async def local_camera_status(vid_id: int):
-    from module_xuzhou.service.local_camera_service import local_camera_manager
+
     return ResponseUtil.success(data=local_camera_manager.get_status(vid_id))
 
 
@@ -1019,15 +976,131 @@ async def local_camera_runs(vid_id: int, page_num: int = 1, page_size: int = 20)
     return ResponseUtil.success(data=result, msg='获取运行记录成功')
 
 
+class RunLocalAlgorithmRequest(BaseModel):
+    vid_id: int = Field(description='摄像头ID')
+    algorithm_code: str = Field(description='算法编码')
+    algorithm_name: str | None = Field(default=None, description='算法名称')
+
+
+@commandController.post('/local_camera/run_algorithm', summary='启动本地摄像头算法')
+async def local_camera_run_algorithm(
+    run_request: RunLocalAlgorithmRequest,
+    query_db: AsyncSession = Depends(get_db),
+):
+    """启动本地摄像头采集并注册算法运行记录。"""
+    from module_xuzhou.dao.local_algorithm_run_log_dao import LocalAlgorithmRunLogDao
+    from module_xuzhou.entity.vo.local_algorithm_run_log_vo import LocalAlgorithmRunLogModel
+    from config.database import AsyncSessionLocal
+
+    video = await VideoService.video_detail_services(query_db, run_request.vid_id)
+    if not video:
+        return ResponseUtil.error(msg='摄像头不存在')
+
+    vid_box_serial = video.get('vidBoxSerial') or video.get('vid_box_serial') or ''
+    if vid_box_serial:
+        return ResponseUtil.error(msg='盒子摄像头请使用 /push_video_config 启动')
+
+    # start camera capture if not already running
+    if not local_camera_manager.running(run_request.vid_id):
+        source = video.get('vidUri') or video.get('vid_uri') or '0'
+        stream_type = video.get('vidType') or video.get('vid_type') or 'usb'
+        err = local_camera_manager.start_camera(run_request.vid_id, str(source), stream_type)
+        if err:
+            return ResponseUtil.error(msg=err)
+
+    algorithm_name = run_request.algorithm_name or run_request.algorithm_code
+
+    # create persistent run log in DB
+    run_model = LocalAlgorithmRunLogModel(
+        vid_id=run_request.vid_id,
+        algorithm_code=run_request.algorithm_code,
+        algorithm_name=algorithm_name,
+        status='running',
+        start_time=datetime.now(),
+    )
+    async with AsyncSessionLocal() as session:
+        run_id = await LocalAlgorithmRunLogDao.create(session, run_model)
+        await session.commit()
+
+    # register in in-memory registry
+    binding = AlgorithmRuntimeService.create_local_binding(
+        vid_id=run_request.vid_id,
+        algorithm_code=run_request.algorithm_code,
+        algorithm_name=algorithm_name,
+    )
+    algorithm_run_registry.start_run(binding, status='running')
+
+    logger.info(
+        f'[local_camera] vid={run_request.vid_id} 算法已启动: '
+        f'code={run_request.algorithm_code} name={algorithm_name} run_id={run_id}'
+    )
+
+    return ResponseUtil.success(
+        data={'run_id': run_id, 'vid_id': run_request.vid_id},
+        msg=f'算法 {algorithm_name} 已启动',
+    )
+
+
+@commandController.post('/local_camera/stop_algorithm', summary='停止本地摄像头算法')
+async def local_camera_stop_algorithm(
+    run_request: RunLocalAlgorithmRequest,
+    query_db: AsyncSession = Depends(get_db),
+):
+    """停止指定摄像头上运行的算法，若无其他算法则停止摄像头采集。"""
+    from module_xuzhou.dao.local_algorithm_run_log_dao import LocalAlgorithmRunLogDao
+    from config.database import AsyncSessionLocal
+
+    # stop in in-memory registry
+    algorithm_run_registry.stop_run(run_request.vid_id, run_request.algorithm_code)
+
+    # update DB run log
+    async with AsyncSessionLocal() as session:
+        latest_run = await LocalAlgorithmRunLogDao.get_latest_running(session, run_request.vid_id)
+        if latest_run and (
+            latest_run.algorithm_code == run_request.algorithm_code
+            or not run_request.algorithm_code
+        ):
+            await LocalAlgorithmRunLogDao.update_status(
+                session, latest_run.id, 'stopped', end_time=datetime.now()
+            )
+            await session.commit()
+
+    # if no more running algorithms, stop camera capture
+    remaining = algorithm_run_registry.list_camera_runs(run_request.vid_id)
+    has_running = any(r.status == 'running' for r in remaining)
+    if not has_running and local_camera_manager.running(run_request.vid_id):
+        local_camera_manager.stop_camera(run_request.vid_id)
+
+    algorithm_name = run_request.algorithm_name or run_request.algorithm_code
+    logger.info(
+        f'[local_camera] vid={run_request.vid_id} 算法已停止: '
+        f'code={run_request.algorithm_code} name={algorithm_name}'
+    )
+
+    return ResponseUtil.success(
+        data={'vid_id': run_request.vid_id},
+        msg=f'算法 {algorithm_name} 已停止',
+    )
+
+
 @commandController.get('/local_camera/snapshot/{vid_id}', summary='本地摄像头实时快照')
 async def local_camera_snapshot(vid_id: int):
     """获取本地服务器摄像头的 JPEG 快照。"""
-    from module_xuzhou.service.local_camera_service import local_camera_manager
+
     from starlette.responses import Response
 
     if not local_camera_manager.running(vid_id):
         return ResponseUtil.error(msg='本地摄像头未运行，请先启动')
 
+    # RTSP 路径：JPEG 帧直接可用
+    if local_camera_manager.is_rtsp_camera(vid_id):
+        jpeg_data = local_camera_manager.get_mjpeg_frame(vid_id)
+        if jpeg_data is None:
+            return ResponseUtil.error(msg='摄像头暂未读取到画面')
+        return Response(content=jpeg_data, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-cache"})
+
+    # USB 路径：numpy 帧需要编码为 JPEG
     frame = local_camera_manager.get_snapshot(vid_id)
     if frame is None:
         return ResponseUtil.error(msg='摄像头暂未读取到画面')
@@ -1041,18 +1114,41 @@ async def local_camera_snapshot(vid_id: int):
 
 @commandController.get('/local_camera/stream_url/{vid_id}', summary='本地摄像头实时流地址')
 async def local_camera_stream_url(vid_id: int, request: Request):
-    """返回本地服务器摄像头的 MJPEG 流地址，供前端 img 直接播放。"""
-    from module_xuzhou.service.local_camera_service import local_camera_manager
+    """返回本地服务器摄像头的流地址。
+    RTSP/RTMP → SRS FLV 地址；USB/local → MJPEG 地址。"""
+
+
+    state = local_camera_manager._states.get(vid_id, {})
+    error_msg = state.get("error_message", "")
 
     if not local_camera_manager.running(vid_id):
-        return ResponseUtil.error(msg='本地摄像头未运行，请先启动')
+        # 如果有错误信息，说明启动失败，返回错误状态
+        if error_msg:
+            return ResponseUtil.success(data={
+                'vidId': vid_id,
+                'streamUrl': None,
+                'streamType': 'unknown',
+                'status': 'error',
+                'errorMessage': error_msg,
+            })
+        # 可能还在后台连接中，不报错，前端轮询等待
+        return ResponseUtil.success(data={
+            'vidId': vid_id,
+            'streamUrl': None,
+            'streamType': 'unknown',
+            'status': 'connecting',
+        })
 
     scheme = 'https' if request.url.scheme == 'https' else 'http'
     host = request.headers.get('host', '127.0.0.1:9099')
+
+    # 本地摄像头统一走 MJPEG（无需 SRS）
     stream_url = f'{scheme}://{host}/xuzhou/command/local_camera/stream/{vid_id}'
     return ResponseUtil.success(data={
         'vidId': vid_id,
         'streamUrl': stream_url,
+        'streamType': 'mjpeg',
+        'status': 'running',
     })
 
 
@@ -1141,24 +1237,35 @@ async def get_box_cameras(box_serial: str, query_db: AsyncSession = Depends(get_
 
 @localStreamController.get('/local_camera/stream/{vid_id}', summary='本地摄像头MJPEG视频流')
 async def local_camera_stream(vid_id: int):
-    """MJPEG 流式输出本地摄像头画面。"""
-    from module_xuzhou.service.local_camera_service import local_camera_manager
+    """MJPEG 流式输出本地摄像头画面（USB 走 OpenCV，RTSP 走 ffmpeg 直出）。"""
+
     from starlette.responses import StreamingResponse
 
     if not local_camera_manager.running(vid_id):
         return ResponseUtil.error(msg='本地摄像头未运行')
 
+    is_rtsp = local_camera_manager.is_rtsp_camera(vid_id)
+
     async def generate():
         import asyncio as aio
-        last_frame_idx = -1
+        last_idx = -1
         while local_camera_manager.running(vid_id):
-            frame, idx = local_camera_manager.get_snapshot_with_idx(vid_id)
-            if frame is not None and idx != last_frame_idx:
-                last_frame_idx = idx
-                data = await aio.to_thread(_encode_jpeg, frame)
-                yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
-                       b"Content-Length: " + str(len(data)).encode() +
-                       b"\r\n\r\n" + data + b"\r\n")
+            if is_rtsp:
+                # RTSP: JPEG 帧已由 ffmpeg 编码好，直接输出
+                jpeg_data = local_camera_manager.get_mjpeg_frame(vid_id)
+                if jpeg_data:
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
+                           b"Content-Length: " + str(len(jpeg_data)).encode() +
+                           b"\r\n\r\n" + jpeg_data + b"\r\n")
+            else:
+                # USB: numpy 帧需要编码
+                frame, idx = local_camera_manager.get_snapshot_with_idx(vid_id)
+                if frame is not None and idx != last_idx:
+                    last_idx = idx
+                    data = await aio.to_thread(_encode_jpeg, frame)
+                    yield (b"--frame\r\nContent-Type: image/jpeg\r\n"
+                           b"Content-Length: " + str(len(data)).encode() +
+                           b"\r\n\r\n" + data + b"\r\n")
             await aio.sleep(0.04)
 
     return StreamingResponse(

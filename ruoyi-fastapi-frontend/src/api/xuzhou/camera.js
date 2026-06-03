@@ -105,3 +105,29 @@ export function getLocalCameraRuns(vidId, pageNum = 1, pageSize = 20) {
     params: { vid_id: vidId, page_num: pageNum, page_size: pageSize }
   })
 }
+
+// 启动本地摄像头算法
+export function runLocalAlgorithm(vidId, algorithmCode, algorithmName) {
+  return request({
+    url: '/xuzhou/command/local_camera/run_algorithm',
+    method: 'post',
+    data: {
+      vid_id: vidId,
+      algorithm_code: algorithmCode,
+      algorithm_name: algorithmName || ''
+    }
+  })
+}
+
+// 停止本地摄像头算法
+export function stopLocalAlgorithm(vidId, algorithmCode, algorithmName) {
+  return request({
+    url: '/xuzhou/command/local_camera/stop_algorithm',
+    method: 'post',
+    data: {
+      vid_id: vidId,
+      algorithm_code: algorithmCode,
+      algorithm_name: algorithmName || ''
+    }
+  })
+}

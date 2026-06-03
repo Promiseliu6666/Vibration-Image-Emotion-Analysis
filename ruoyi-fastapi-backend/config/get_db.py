@@ -1,3 +1,5 @@
+import asyncio
+
 from config.database import async_engine, AsyncSessionLocal, Base
 from utils.log_util import logger
 
@@ -8,8 +10,14 @@ async def get_db():
 
     :return:
     """
-    async with AsyncSessionLocal() as current_db:
+    current_db = AsyncSessionLocal()
+    try:
         yield current_db
+    finally:
+        # 使用 asyncio.shield 确保即使请求被取消（如客户端断开连接），
+        # 也能正确关闭数据库连接并归还到连接池，
+        # 避免 SQLAlchemy 报 "non-checked-in connection" 警告
+        await asyncio.shield(current_db.close())
 
 
 async def init_create_table():

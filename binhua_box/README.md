@@ -2,6 +2,8 @@
 
 基于华为 Ascend NPU 的边缘视频分析服务，负责摄像头拉流、算法推理、结果回传。
 
+> 本目录是[智能视频分析平台](../README.md)的边缘计算组件，与后端通过 RabbitMQ 通信。
+
 ## 目录结构
 
 ```
@@ -163,8 +165,14 @@ MAX_CONCURRENT_CAMERAS=8
 ```bash
 cd ~/binhua_box
 pip3 install -r requirements.txt
+
+# 方式一：直接启动
 set -a && source box.env && set +a
 python3 -m box.main
+
+# 方式二：使用启动脚本
+chmod +x start_box.sh
+./start_box.sh
 ```
 
 启动成功日志：

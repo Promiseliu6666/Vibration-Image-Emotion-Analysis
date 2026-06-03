@@ -80,6 +80,13 @@ class DeleteBinhuaAnalysisModel(BaseModel):
     analysis_ids: str = Field(description='需要删除的分析记录ID，多个用逗号分隔，例如 "1,2,3"')
 
 
+class ExportPersonReportModel(BaseModel):
+    """导出个人分析报告 PDF 请求体"""
+    model_config = ConfigDict(populate_by_name=True)
+    analysis_id: int = Field(alias='analysisId', description='分析记录ID')
+    radar_image: str = Field(alias='radarImage', description='雷达图 base64 PNG')
+
+
 @as_query
 class BinhuaAnalysisPageQueryModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True)

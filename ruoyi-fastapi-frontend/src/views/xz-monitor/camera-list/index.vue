@@ -233,40 +233,48 @@
       </el-table-column>
       <el-table-column label="操作" width="310" fixed="right" align="center">
         <template #default="{ row }">
-          <el-button
-            v-if="row.deviceStatus === 'running'"
-            type="primary" link icon="View" @click="handleView(row)">查看</el-button>
-          <el-tooltip
-            v-else-if="row.deviceStatus === 'error'"
-            :content="row.deviceErrorMessage || '视频流错误'"
-            placement="top"
-          >
-            <el-button type="warning" link icon="Warning" @click="handleRestartOne(row)">重试</el-button>
-          </el-tooltip>
-          <el-tooltip
-            v-else-if="row.deviceStatus === 'offline'"
-            :content="row.deviceErrorMessage || '盒子离线，无法操作'"
-            placement="top"
-          >
-            <el-button type="info" link icon="VideoPlay" disabled>启动</el-button>
-          </el-tooltip>
+          <!-- 本地摄像头：查看时自动拉流，无需手动启停 -->
+          <template v-if="isLocalCamera(row)">
+            <el-button type="primary" link icon="View" @click="handleView(row)">查看</el-button>
+            <el-button type="primary" link icon="List" @click="handleRunHistory(row)">运行记录</el-button>
+            <el-button type="primary" link icon="Setting" @click="showAlgorithmDialog(row)">配置算法</el-button>
+            <el-button type="primary" link icon="Edit" @click="handleUpdate(row)">修改</el-button>
+            <el-button type="danger" link icon="Delete" @click="handleDelete(row)">删除</el-button>
+          </template>
+          <!-- 盒子摄像头：保持手动启停逻辑 -->
+          <template v-else>
+            <el-button
+              v-if="row.deviceStatus === 'running'"
+              type="primary" link icon="View" @click="handleView(row)">查看</el-button>
+            <el-tooltip
+              v-else-if="row.deviceStatus === 'error'"
+              :content="row.deviceErrorMessage || '视频流错误'"
+              placement="top"
+            >
+              <el-button type="warning" link icon="Warning" @click="handleRestartOne(row)">重试</el-button>
+            </el-tooltip>
+            <el-tooltip
+              v-else-if="row.deviceStatus === 'offline'"
+              :content="row.deviceErrorMessage || '盒子离线，无法操作'"
+              placement="top"
+            >
+              <el-button type="info" link icon="VideoPlay" disabled>启动</el-button>
+            </el-tooltip>
 
-          <el-button
-            v-if="row.deviceStatus === 'running'"
-            type="danger" link icon="VideoPause" @click="handleStopOne(row)">停止</el-button>
-          <el-button
-            v-else-if="row.deviceStatus === 'error'"
-            type="warning" link icon="RefreshRight" @click="handleRestartOne(row)">重试</el-button>
-          <el-button
-            v-else-if="row.deviceStatus !== 'offline'"
-            type="success" link icon="VideoPlay" @click="handleStartOne(row)">启动</el-button>
+            <el-button
+              v-if="row.deviceStatus === 'running'"
+              type="danger" link icon="VideoPause" @click="handleStopOne(row)">停止</el-button>
+            <el-button
+              v-else-if="row.deviceStatus === 'error'"
+              type="warning" link icon="RefreshRight" @click="handleRestartOne(row)">重试</el-button>
+            <el-button
+              v-else-if="row.deviceStatus !== 'offline'"
+              type="success" link icon="VideoPlay" @click="handleStartOne(row)">启动</el-button>
 
-          <el-button
-            v-if="!row.vidBoxSerial"
-            type="primary" link icon="List" @click="handleRunHistory(row)">运行记录</el-button>
-          <el-button type="primary" link icon="Setting" @click="showAlgorithmDialog(row)">配置算法</el-button>
-          <el-button type="primary" link icon="Edit" @click="handleUpdate(row)">修改</el-button>
-          <el-button type="danger" link icon="Delete" @click="handleDelete(row)">删除</el-button>
+            <el-button type="primary" link icon="Setting" @click="showAlgorithmDialog(row)">配置算法</el-button>
+            <el-button type="primary" link icon="Edit" @click="handleUpdate(row)">修改</el-button>
+            <el-button type="danger" link icon="Delete" @click="handleDelete(row)">删除</el-button>
+          </template>
         </template>
       </el-table-column>
     </el-table>
@@ -407,7 +415,8 @@
       <div class="view-content">
         <div class="video-section">
           <div class="video-container single-view">
-            <template v-if="isBoxCamera(currentCamera) || isServerCamera(currentCamera)">
+            <!-- 本地服务器摄像头 或 盒子摄像头 FLV 失败回退到 MJPEG -->
+            <template v-if="isServerCamera(currentCamera) || useMJPEGFallback">
               <img v-if="boxStreamSrc" :src="boxStreamSrc" class="video-player" style="object-fit: contain" @load="singleVideoLoading = false" @error="handleDirectStreamError" />
               <img v-else-if="snapshotSrc" :src="snapshotSrc" class="video-player" style="object-fit: contain" />
               <div v-else-if="snapshotError" class="video-error">
@@ -422,10 +431,11 @@
                 <el-button type="primary" size="small" @click="retryLoadStream(currentCamera)">重试</el-button>
               </div>
             </template>
+            <!-- 盒子摄像头及其他：使用 SRS FLV 流（低延迟、硬件加速） -->
             <video v-else ref="liveVideoRef" class="video-player" controls muted />
             <div class="video-placeholder" v-show="singleVideoLoading">
               <el-icon size="48"><VideoCamera /></el-icon>
-              <p>{{ isBoxCamera(currentCamera) ? '盒子视频流加载中...' : isServerCamera(currentCamera) ? '本地摄像头加载中...' : '视频加载中...' }}</p>
+              <p>{{ isServerCamera(currentCamera) ? '本地摄像头加载中...' : '视频加载中...' }}</p>
             </div>
           </div>
         </div>
@@ -734,6 +744,7 @@ const viewDialogVisible = ref(false)
 const currentCamera = ref({})
 const liveVideoRef = ref(null)
 const singleVideoLoading = ref(true)
+const useMJPEGFallback = ref(false)  // 盒子摄像头 FLV 失败后回退到 MJPEG 流
 const boxStreamSrc = ref('')
 const snapshotSrc = ref('')
 const snapshotError = ref(null)
@@ -780,8 +791,24 @@ function isBoxCamera(camera) {
   return !!camera?.vidBoxSerial
 }
 
-function isServerCamera(camera) {
+function isLocalCamera(camera) {
+  // 纯本地（无盒子），用于判断是否需要隐藏启动/停止按钮
+  return !camera?.vidBoxSerial
+}
+
+function isLocalUsbCamera(camera) {
+  // 本地 USB 摄像头 → MJPEG 播放
   return !camera?.vidBoxSerial && camera?.vidType === 'local'
+}
+
+function isLocalRtspCamera(camera) {
+  // 本地网络流摄像头（RTSP/RTMP/HTTP）→ ffmpeg MJPEG 播放
+  return !camera?.vidBoxSerial && camera?.vidType !== 'local'
+}
+
+function isServerCamera(camera) {
+  // 所有本地摄像头（USB + RTSP）统一走 MJPEG 路径（无需 SRS）
+  return !camera?.vidBoxSerial
 }
 
 
@@ -931,6 +958,7 @@ async function handleView(row) {
   currentCamera.value = row
   viewDialogVisible.value = true
   singleVideoLoading.value = true
+  useMJPEGFallback.value = false
   boxStreamSrc.value = ''
   snapshotSrc.value = ''
 
@@ -947,24 +975,23 @@ async function handleView(row) {
     return
   }
 
-  if (isBoxCamera(row)) {
-    destroySinglePlayer()
-    await startBoxStreamPreview(row.vidId)
-    return
-  }
-
+  // 本地摄像头（USB + RTSP）→ MJPEG 路径（无需 SRS）
   if (isServerCamera(row)) {
+    console.log('[camera-list] 走本地MJPEG路径 vidId=', row.vidId, 'vidType=', row.vidType)
     destroySinglePlayer()
     await startServerCameraStream(row)
     return
   }
 
+  // 盒子摄像头 → FLV 播放
+  console.log('[camera-list] 走盒子路径 vidId=', row.vidId, 'vidBoxSerial=', row.vidBoxSerial)
   await nextTick()
   initSinglePlayer(row)
 }
 
 async function startBoxStreamPreview(vidId) {
   stopSnapshotPreview()
+  useMJPEGFallback.value = true
   snapshotSrc.value = ''
   snapshotError.value = null
   try {
@@ -986,16 +1013,28 @@ async function startServerCameraStream(row) {
   snapshotSrc.value = ''
   snapshotError.value = null
   try {
+    // 异步启动（后端非阻塞，立即返回）
     await startLocalCamera(row.vidId)
-    const res = await getLocalCameraStreamUrl(row.vidId)
-    const streamUrl = res.data?.streamUrl
+
+    // 轮询等待摄像头连接就绪，最多等 10 秒
+    let streamUrl = null
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 500))
+      try {
+        const res = await getLocalCameraStreamUrl(row.vidId)
+        streamUrl = res.data?.streamUrl
+        if (streamUrl) break
+      } catch { /* 还没就绪，继续等 */ }
+    }
+
     if (!streamUrl) {
-      throw new Error(res.msg || '本地摄像头未返回视频流地址')
+      throw new Error('本地摄像头启动超时，请检查视频源是否可达')
     }
     boxStreamSrc.value = `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
     singleVideoLoading.value = false
   } catch (error) {
     boxStreamSrc.value = ''
+    // 启动失败，尝试用快照兜底
     await loadLocalSnapshot(row.vidId)
   }
 }
@@ -1024,19 +1063,30 @@ function handleDirectStreamError() {
   const camera = currentCamera.value
   boxStreamSrc.value = ''
   if (!camera?.vidId) return
-  if (isServerCamera(camera)) {
+  if (isLocalUsbCamera(camera)) {
     loadLocalSnapshot(camera.vidId)
   } else if (isBoxCamera(camera)) {
     loadSnapshot(camera.vidId)
   }
+  // 本地 RTSP 无 MJPEG 回退，保持错误状态
 }
 
 function retryLoadStream(camera) {
   if (!camera?.vidId) return
-  if (isServerCamera(camera)) {
+  if (isLocalUsbCamera(camera)) {
     startServerCameraStream(camera)
-  } else if (isBoxCamera(camera)) {
-    startBoxStreamPreview(camera.vidId)
+  } else {
+    // 本地 RTSP 或盒子摄像头：重试 FLV
+    useMJPEGFallback.value = false
+    boxStreamSrc.value = ''
+    snapshotSrc.value = ''
+    snapshotError.value = null
+    singleVideoLoading.value = true
+    // 本地 RTSP 需要先触发 ffmpeg→SRS 推流
+    if (isLocalRtspCamera(camera)) {
+      startLocalCamera(camera.vidId).catch(() => {})
+    }
+    nextTick(() => initSinglePlayer(camera))
   }
 }
 
@@ -1120,6 +1170,11 @@ function stopSnapshotPreview() {
 
 function initSinglePlayer(row) {
   if (!flvjs.isSupported()) {
+    // 浏览器不支持 FLV → 盒子摄像头回退到 MJPEG 流
+    if (isBoxCamera(row)) {
+      startBoxStreamPreview(row.vidId)
+      return
+    }
     ElMessage.error('当前浏览器不支持FLV播放')
     singleVideoLoading.value = false
     return
@@ -1146,9 +1201,16 @@ function initSinglePlayer(row) {
   player.attachMediaElement(element)
   player.load()
 
+  let flvFailed = false
   player.on(flvjs.Events.ERROR, () => {
+    flvFailed = true
     singleVideoLoading.value = false
     try { player.destroy() } catch (e) { /* ignore */ }
+    singleFlvPlayer = null
+    // 盒子摄像头：FLV 失败时回退到盒子本地 MJPEG 流
+    if (isBoxCamera(row)) {
+      startBoxStreamPreview(row.vidId)
+    }
   })
 
   player.on(flvjs.Events.METADATA_ARRIVED, () => {
@@ -1159,11 +1221,15 @@ function initSinglePlayer(row) {
   singleFlvPlayer = player
 
   setTimeout(() => {
-    if (singleVideoLoading.value) {
+    if (singleVideoLoading.value && !flvFailed) {
       singleVideoLoading.value = false
       destroySinglePlayer()
+      // 15 秒超时 → 盒子摄像头回退到 MJPEG
+      if (isBoxCamera(row)) {
+        startBoxStreamPreview(row.vidId)
+      }
     }
-  }, 30000)
+  }, 15000)
 }
 
 function destroySinglePlayer() {
@@ -1177,13 +1243,14 @@ function closeViewDialog() {
   viewDialogVisible.value = false
   destroySinglePlayer()
   stopSnapshotPreview()
+  useMJPEGFallback.value = false
   singleVideoLoading.value = true
 }
 
 // ==================== 启停 ====================
 async function handleStartOne(row) {
   try {
-    if (isServerCamera(row)) {
+    if (isLocalCamera(row)) {
       await startLocalCamera(row.vidId)
       ElMessage.success(`本地摄像头 ${row.vidName} 采集已启动`)
     } else {
@@ -1199,7 +1266,7 @@ async function handleStartOne(row) {
 async function handleStopOne(row) {
   try {
     await ElMessageBox.confirm(`确定停止摄像头 ${row.vidName} 吗？`, '提示', { type: 'warning' })
-    if (isServerCamera(row)) {
+    if (isLocalCamera(row)) {
       await stopLocalCamera(row.vidId)
     } else {
       await stopCamera(row.vidId)
@@ -1213,7 +1280,7 @@ async function handleStopOne(row) {
 
 async function handleRestartOne(row) {
   try {
-    if (isServerCamera(row)) {
+    if (isLocalCamera(row)) {
       await startLocalCamera(row.vidId)
     } else {
       await startCamera(row.vidId)
@@ -1226,30 +1293,42 @@ async function handleRestartOne(row) {
 }
 
 async function handleBatchStart() {
-  const cams = selectedCameras.value.filter(c => c.deviceStatus !== 'running')
-  if (cams.length === 0) {
-    ElMessage.info('所选摄像头均已运行')
+  const localCams = selectedCameras.value.filter(c => isLocalCamera(c))
+  const boxCams = selectedCameras.value.filter(c => isBoxCamera(c) && c.deviceStatus !== 'running')
+  if (localCams.length > 0 && boxCams.length === 0) {
+    ElMessage.info('所选均为本地摄像头，无需手动启动')
     return
   }
-  const results = await Promise.allSettled(cams.map(c => startCamera(c.vidId)))
+  if (boxCams.length === 0) {
+    ElMessage.info('所选盒子摄像头均已运行')
+    return
+  }
+  const results = await Promise.allSettled(boxCams.map(c => startCamera(c.vidId)))
   const succeeded = results.filter(r => r.status === 'fulfilled').length
   const failed = results.filter(r => r.status === 'rejected').length
+  const skippedMsg = localCams.length > 0 ? `（已跳过 ${localCams.length} 个本地摄像头）` : ''
   ElMessage[failed === 0 ? 'success' : 'warning'](
-    failed === 0 ? `已向 ${succeeded} 个摄像头发送启动指令` : `${succeeded} 个启动成功，${failed} 个失败`
+    failed === 0 ? `已向 ${succeeded} 个摄像头发送启动指令${skippedMsg}` : `${succeeded} 个启动成功，${failed} 个失败${skippedMsg}`
   )
   setTimeout(() => getList(), 3000)
 }
 
 async function handleBatchStop() {
-  const cams = selectedCameras.value.filter(c => c.deviceStatus === 'running')
-  if (cams.length === 0) {
-    ElMessage.info('所选摄像头均已停止')
+  const localCams = selectedCameras.value.filter(c => isLocalCamera(c))
+  const boxCams = selectedCameras.value.filter(c => isBoxCamera(c) && c.deviceStatus === 'running')
+  if (localCams.length > 0 && boxCams.length === 0) {
+    ElMessage.info('所选均为本地摄像头，无需手动停止')
     return
   }
-  const names = cams.map(c => c.vidName).join('、')
+  if (boxCams.length === 0) {
+    ElMessage.info('所选盒子摄像头均已停止')
+    return
+  }
+  const names = boxCams.map(c => c.vidName).join('、')
   try {
-    await ElMessageBox.confirm(`确定停止以下摄像头吗？\n${names}`, '批量停止', { type: 'warning' })
-    const results = await Promise.allSettled(cams.map(c => stopCamera(c.vidId)))
+    const skipNote = localCams.length > 0 ? `\n（本地摄像头无需停止，共 ${localCams.length} 个）` : ''
+    await ElMessageBox.confirm(`确定停止以下摄像头吗？\n${names}${skipNote}`, '批量停止', { type: 'warning' })
+    const results = await Promise.allSettled(boxCams.map(c => stopCamera(c.vidId)))
     const succeeded = results.filter(r => r.status === 'fulfilled').length
     const failed = results.filter(r => r.status === 'rejected').length
     ElMessage[failed === 0 ? 'success' : 'warning'](

@@ -154,6 +154,12 @@
         <el-table-column type="selection" width="55" />
         <el-table-column prop="id" label="ID" width="80" align="center" />
         <el-table-column prop="source" label="视频来源" min-width="140" show-overflow-tooltip />
+        <el-table-column label="视频位置" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.boxSerial" type="warning" size="small">盒子-{{ row.boxSerial }}</el-tag>
+            <el-tag v-else type="success" size="small">本地服务器</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="personName" label="人名" min-width="120" show-overflow-tooltip />
         <el-table-column prop="personId" label="人员ID" width="100" align="center" />
         <el-table-column prop="happinessIndex" label="幸福指数" width="120" sortable align="center" />
@@ -253,6 +259,10 @@
           </template>
           <el-descriptions-item label="ID">{{ detailData.id || '-' }}</el-descriptions-item>
           <el-descriptions-item label="视频来源">{{ detailData.source || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="视频位置">
+            <el-tag v-if="detailData.boxSerial" type="warning" size="small">盒子-{{ detailData.boxSerial }}</el-tag>
+            <el-tag v-else type="success" size="small">本地服务器</el-tag>
+          </el-descriptions-item>
           <el-descriptions-item label="人名">{{ detailData.personName || '-' }}</el-descriptions-item>
           <el-descriptions-item label="人员ID">{{ detailData.personId || '-' }}</el-descriptions-item>
           <el-descriptions-item label="幸福指数">
@@ -281,8 +291,12 @@
           <template #header>
             <div class="video-header">
               <span class="section-title">分析视频（10秒录制）</span>
-              <el-tag v-if="hasVideo" type="success" size="small">已录制</el-tag>
-              <el-tag v-else type="info" size="small">暂无视频</el-tag>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <el-tag v-if="detailData.boxSerial" type="warning" size="small">盒子-{{ detailData.boxSerial }}</el-tag>
+                <el-tag v-else-if="hasVideo" type="success" size="small">本地存储</el-tag>
+                <el-tag v-if="hasVideo" type="success" size="small">已录制</el-tag>
+                <el-tag v-else type="info" size="small">暂无视频</el-tag>
+              </div>
             </div>
           </template>
 
@@ -553,7 +567,11 @@ const loadVideo = async () => {
   } catch (err) {
     console.error('[视频加载失败]', err)
     videoBlobUrl.value = ''
-    ElMessage.error('视频加载失败，请检查登录状态')
+    if (detailData.value?.boxSerial) {
+      ElMessage.warning(`盒子视频加载失败，请确认盒子 ${detailData.value.boxSerial} 在线且视频文件存在`)
+    } else {
+      ElMessage.error('本地视频文件加载失败，文件可能已被删除')
+    }
   }
 }
 
@@ -567,8 +585,20 @@ const onVideoLoaded = () => {}
 
 const handleVideoError = (e) => {
   const video = e.target
-  console.error('视频加载失败', video.error)
-  ElMessage.error(`视频加载失败（错误码: ${video?.error?.code || '未知'}）`)
+  const errorCode = video?.error?.code
+  console.error('视频加载失败', video?.error)
+  if (errorCode === 4) {
+    // MEDIA_ERR_SRC_NOT_SUPPORTED - 视频格式或来源不支持
+    if (detailData.value?.boxSerial) {
+      ElMessage.error(`盒子视频格式不兼容，盒子 ${detailData.value.boxSerial} 返回的视频可能已损坏`)
+    } else {
+      ElMessage.error('视频文件格式不支持或已损坏，请检查视频文件')
+    }
+  } else if (detailData.value?.boxSerial) {
+    ElMessage.warning(`盒子视频加载失败 (错误码: ${errorCode || '未知'})，请确认盒子在线`)
+  } else {
+    ElMessage.error(`视频加载失败 (错误码: ${errorCode || '未知'})`)
+  }
 }
 
 const getLevelTagType = (level) => {
@@ -1196,7 +1226,11 @@ const handleExportReport = async () => {
   exportLoading.value = true
 
   try {
-    let tempChart = echarts.init(document.createElement('div'))
+    let tempChart = echarts.init(document.createElement('div'), null, {
+      width: 800,
+      height: 600,
+      renderer: 'canvas'
+    })
     tempChart.setOption(getPersonRadarOption(row))
     
     const radarBase64 = tempChart.getDataURL({

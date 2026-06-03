@@ -136,7 +136,7 @@ class AlgorithmRuntimeService:
         configured_value = video_detail.get("vid_algorithm", video_detail.get("vidAlgorithm"))
         legacy_algorithms = cls._parse_legacy_algorithms(configured_value)
         if not legacy_algorithms:
-            return [] if cls._is_explicit_empty_algorithm_config(configured_value) else [cls.create_local_binding(vid_id=int(vid_id))]
+            return []  # 未配置算法时返回空，不添加默认算法
 
         bindings = []
         for index, legacy_algorithm in enumerate(legacy_algorithms):

@@ -68,8 +68,8 @@ class VideoService:
                             item['deviceErrorMessage'] = device_status.get('error_message', '')
                         item['deviceUpdateTime'] = device_status.get('update_time')
                         item['isRunning'] = device_status.get('status') == 'running' and not box_offline
-                    elif item.get('vidType') == 'local' and not vid_box_serial:
-                        # 纯本地摄像头(未绑定盒子) — 默认运行中
+                    elif not vid_box_serial:
+                        # 纯本地摄像头(未绑定盒子，含 local/rtsp/rtmp/http/file 等) — 默认运行中，查看时自动拉流
                         item['deviceStatus'] = 'running'
                         item['deviceUpdateTime'] = None
                         item['isRunning'] = True

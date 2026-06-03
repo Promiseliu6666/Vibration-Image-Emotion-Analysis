@@ -6,6 +6,7 @@ Camera stream manager – two independent paths:
 import subprocess
 import threading
 import time
+import queue
 from collections.abc import Callable
 
 import cv2
@@ -122,27 +123,13 @@ class CameraManager:
                 return state
 
         # 2) Start OpenCV capture for algorithm inference
-        # local/USB摄像头: "4" → "/dev/video4" (ARM 上必须用路径)
-        capture_source = stream_url
-        if stream_type in ("local", "usb") and stream_url.isdigit():
-            capture_source = f"/dev/video{stream_url}"
-        try:
-            cap = cv2.VideoCapture(capture_source)
-            try:
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            except Exception:
-                pass
-            if not cap.isOpened():
-                state.status = CameraStatus.ERROR
-                state.error_message = f"Failed to open stream: {stream_url}"
-                self._stop_srs_push(publish_path)
-                return state
-            self._captures[vid_id] = cap
-        except Exception as e:
+        cap = self._open_capture(stream_url, stream_type)
+        if cap is None:
             state.status = CameraStatus.ERROR
-            state.error_message = str(e)
+            state.error_message = f"Failed to open stream: {stream_url}"
             self._stop_srs_push(publish_path)
             return state
+        self._captures[vid_id] = cap
 
         thread = threading.Thread(target=self._read_loop, args=(vid_id,), daemon=True)
         self._read_threads[vid_id] = thread
@@ -233,6 +220,82 @@ class CameraManager:
         except subprocess.TimeoutExpired:
             proc.kill()
 
+    # ── FFmpeg timeout helpers ──────────────────────────────────────────
+
+    @staticmethod
+    def _set_ffmpeg_timeout(timeout_sec: int = 5) -> None:
+        """Set FFmpeg socket/read timeouts to avoid the default 30 s block on dead streams."""
+        timeout_us = timeout_sec * 1_000_000
+        # Primary: FFmpeg-level socket timeout (works with most OpenCV builds)
+        os.environ.setdefault(
+            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+            f"rtsp_transport;tcp|timeout;{timeout_us}",
+        )
+        # Fallback: OpenCV 4.5+ internal read timeout (env var, not a property)
+        os.environ.setdefault(
+            "OPENCV_FFMPEG_READ_TIMEOUT_MS",
+            str(timeout_sec * 1000),
+        )
+
+    def _open_capture(self, stream_url: str, stream_type: str) -> cv2.VideoCapture | None:
+        """Open a VideoCapture with stream-disconnect-friendly timeouts."""
+        capture_source = stream_url
+        if stream_type in ("local", "usb") and stream_url.isdigit():
+            capture_source = f"/dev/video{stream_url}"
+
+        self._set_ffmpeg_timeout()
+        cap = cv2.VideoCapture(capture_source)
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+        if not cap.isOpened():
+            cap.release()
+            return None
+        return cap
+
+    def _reconnect_capture(self, vid_id: int, stream_url: str, stream_type: str) -> cv2.VideoCapture | None:
+        """Release the old capture (if any) and open a fresh one. Returns the new cap or None."""
+        old_cap = self._captures.pop(vid_id, None)
+        if old_cap is not None:
+            try:
+                old_cap.release()
+            except Exception:
+                pass
+        return self._open_capture(stream_url, stream_type)
+
+    def _timed_read(self, cap: cv2.VideoCapture, timeout: float = 10.0) -> tuple[bool, np.ndarray | None]:
+        """带看门狗的帧读取，超时返回 (False, None)，避免 FFmpeg 层死等 30 秒。
+
+        在单独线程中执行 cap.read()，若超时则放弃等待并释放捕获对象，
+        下次循环会通过 _reconnect_capture 重建连接。
+        """
+        result_queue: queue.Queue = queue.Queue()
+
+        def _reader() -> None:
+            ret, frame = cap.read()
+            result_queue.put((ret, frame))
+
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+        t.join(timeout=timeout)
+
+        if t.is_alive():
+            # cap.read() 仍在阻塞 → 强制释放 capture 来打断阻塞线程
+            # 注意：不同 OpenCV 构建对此行为的支持程度不同，
+            # 但我们已在 _set_ffmpeg_timeout 中设置了 FFmpeg 级超时作为第一道防线
+            try:
+                cap.release()
+            except Exception:
+                pass
+            t.join(timeout=2)  # 给 release 后的线程一点时间退出
+            return False, None
+
+        try:
+            return result_queue.get_nowait()
+        except queue.Empty:
+            return False, None
+
     # ── OpenCV inference loop ──────────────────────────────────────────
 
     def _read_loop(self, vid_id: int) -> None:
@@ -241,28 +304,62 @@ class CameraManager:
             return
         state = self._cameras.get(vid_id)
 
-        DISCONNECT_THRESHOLD = 30
+        DISCONNECT_THRESHOLD = 5            # 连续失败阈值（之前30, 配合5s超时 ≈ 25s检测断流）
+        MAX_RECONNECT_ATTEMPTS = 3           # 最大连续重连次数
+        READ_WATCHDOG_TIMEOUT = 10.0         # cap.read() 看门狗超时(秒) — 兜底保护
+        reconnect_count = 0
         consecutive_failures = 0
         frame_count = 0
         print(f"[DEBUG] camera: read_loop started vid={vid_id}", flush=True)
 
         try:
             stop_event = self._stop_events.get(vid_id)
-            while vid_id in self._captures and self._captures.get(vid_id) is cap \
-                    and (stop_event is None or not stop_event.is_set()):
-                ret, frame = cap.read()
+            while vid_id in self._captures and (stop_event is None or not stop_event.is_set()):
+                # 更新当前正在使用的 cap 引用（重连后会变化）
+                cap = self._captures.get(vid_id)
+                if cap is None:
+                    return
+
+                # 带看门狗超时的帧读取 — 防止 FFmpeg 层死等
+                ret, frame = self._timed_read(cap, timeout=READ_WATCHDOG_TIMEOUT)
                 frame_count += 1
+
                 if not ret:
                     consecutive_failures += 1
-                    if consecutive_failures >= DISCONNECT_THRESHOLD and state:
-                        state.status = CameraStatus.ERROR
-                        state.error_message = f"视频流中断，连续 {DISCONNECT_THRESHOLD} 帧读取失败"
-                        self._stop_srs_push(state.publish_path)
+                    if consecutive_failures == 1:
+                        print(f"[WARN] camera: vid={vid_id} 帧读取失败 (超时或断流), 开始计数", flush=True)
+
+                    if consecutive_failures >= DISCONNECT_THRESHOLD:
+                        if reconnect_count < MAX_RECONNECT_ATTEMPTS and state:
+                            print(
+                                f"[WARN] camera: vid={vid_id} 连续 {consecutive_failures} 帧失败, "
+                                f"尝试重连 ({reconnect_count + 1}/{MAX_RECONNECT_ATTEMPTS})",
+                                flush=True,
+                            )
+                            new_cap = self._reconnect_capture(vid_id, state.stream_url, state.stream_type)
+                            if new_cap:
+                                self._captures[vid_id] = new_cap
+                                consecutive_failures = 0
+                                reconnect_count += 1
+                                continue
+                            else:
+                                print(f"[ERROR] camera: vid={vid_id} 重连失败 — 无法打开流", flush=True)
+
+                        # 重连次数耗尽或没有 state
+                        if state:
+                            state.status = CameraStatus.ERROR
+                            state.error_message = (
+                                f"视频流中断，连续 {consecutive_failures} 帧读取失败，"
+                                f"已尝试重连 {reconnect_count} 次"
+                            )
+                            self._stop_srs_push(state.publish_path)
                         return
-                    time.sleep(0.1)
+                    time.sleep(0.5)  # 失败后退避，避免空转
                     continue
 
+                # 成功读取到帧
                 consecutive_failures = 0
+                reconnect_count = 0  # 成功读取即复位重连计数
 
                 # store original frame for snapshot
                 with self._frame_lock:
@@ -282,7 +379,8 @@ class CameraManager:
         finally:
             # release capture in the same thread that created it to avoid V4L2 races.
             # suppress V4L2 ioctl stderr noise during release on ARM.
-            if cap.isOpened():
+            # cap may be None on early return, or already released by _timed_read watchdog.
+            if cap is not None and cap.isOpened():
                 try:
                     _devnull = os.open(os.devnull, os.O_WRONLY)
                     _stderr_fd = 2
@@ -293,5 +391,8 @@ class CameraManager:
                     os.dup2(_saved, _stderr_fd)
                     os.close(_saved)
                 except Exception:
-                    cap.release()
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
             self._captures.pop(vid_id, None)

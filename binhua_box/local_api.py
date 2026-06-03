@@ -179,10 +179,11 @@ async def generate_camera_stream(vid_id: int):
     while True:
         frame = camera_manager.get_snapshot(vid_id)
         if frame is not None:
-            _, jpeg = cv2.imencode(".jpg", frame)
+            # JPEG quality 70 → 减少 CPU 编码开销和带宽，同时保持可接受的画质
+            _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             data = jpeg.tobytes()
             yield b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(data)).encode() + b"\r\n\r\n" + data + b"\r\n"
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.07)  # ~15fps，相比原来的 5fps 更流畅；FLV 路径是主力，MJPEG 仅作回退
 
 
 @app.get("/cameras/{vid_id}/stream")

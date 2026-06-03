@@ -111,10 +111,10 @@ except Exception as e:
 VIDEO_SAVE_DIR = "videos"
 os.makedirs(VIDEO_SAVE_DIR, exist_ok=True)
 
-video_writers = {}
+video_ffmpeg_procs = {}  # ffmpeg 子进程（直接编码 H.264，浏览器可播放）
 video_start_times = {}
 
-RECORD_FPS = 20.0
+RECORD_FPS = 20.0  # 与 generate() 中 target_fps(analyzing)=20 一致
 RECORD_DURATION = 10.0
 
 # ==================== 优化参数 ====================
@@ -124,6 +124,7 @@ ANALYSIS_INTERVAL = 10
 STABLE_FRAMES_REQUIRED = 15
 TOLERANCE = 60
 LOST_CHECK_INTERVAL = 20
+LOST_FACE_THRESHOLD = 3        # 连续丢脸次数阈值，减少误触发
 RECOGNIZE_TIMEOUT = 3.0
 RECOGNIZE_MIN_GAP_SECONDS = 2.5
 
@@ -204,6 +205,8 @@ def _new_analysis_state() -> dict:
         "video_frame_count": 0,
         "recognizing": False,
         "last_recognize_at": 0.0,
+        "lost_face_count": 0,
+        "reset_at": 0.0,
         "face_compare_semaphore": asyncio.Semaphore(1),
         "current_run_log_id": None,
     }
@@ -214,7 +217,7 @@ def ensure_camera_state(camera_key: str) -> dict:
     active_clients.setdefault(camera_key, 0)
     latest_results.setdefault(camera_key, {f"e{i}": 0.0 for i in range(1, 15)})
     stable_state.setdefault(camera_key, _new_analysis_state())
-    video_writers.setdefault(camera_key, None)
+    video_ffmpeg_procs.setdefault(camera_key, None)
     video_start_times.setdefault(camera_key, None)
     return stable_state[camera_key]
 
@@ -223,6 +226,11 @@ async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, result
     try:
         person_id = state.get("person_id") or None
         person_name = state.get("matched_person") or "Unknown"
+
+        # 仅保存已识别到真实人员的记录
+        if not person_id or person_name == "Unknown":
+            print(f"[{source}] 【跳过保存】 人员未识别 (person_name={person_name}, person_id={person_id})")
+            return None
 
         happiness_index = results.get("e12", 0.0)
 
@@ -267,13 +275,30 @@ async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, result
 
 
 async def persist_analysis_result(source: str, state: dict, results: dict, video_path: str = None):
-    async with AsyncSessionLocal() as db:
-        return await save_analysis_to_db(db, source, state, results, video_path)
+    try:
+        async with AsyncSessionLocal() as db:
+            return await save_analysis_to_db(db, source, state, results, video_path)
+    except asyncio.CancelledError:
+        # 任务被取消时静默退出，不触发 Session 回滚异常
+        pass
+    except Exception as e:
+        print(f"[{source}] persist_analysis_result 异常: {e}")
 
 
 def reset_analysis_state(camera_key: str):
     if camera_key in stable_state:
         state = stable_state[camera_key]
+
+        # 清理未完成的录制视频（分析已完成的不删——已由 finalize_analysis 处理）
+        if not state.get("analysis_completed"):
+            orphan_video = state.get("current_video_path")
+            if orphan_video and os.path.exists(orphan_video):
+                try:
+                    os.remove(orphan_video)
+                    print(f"[{camera_key}] 删除未完成视频: {os.path.basename(orphan_video)}")
+                except Exception as e:
+                    print(f"[{camera_key}] 删除视频失败: {e}")
+
         state.update({
             "stable_count": 0, "prev_center": None, "prev_size": None,
             "locked_rect": None, "analyzing": False, "frame_count": 0,
@@ -287,15 +312,19 @@ def reset_analysis_state(camera_key: str):
             "current_video_path": None,
             "video_frame_count": 0,
             "recognizing": False,
-            "last_recognize_at": 0.0
+            "last_recognize_at": 0.0,
+            "reset_at": time.time(),  # 冷却时间戳，防止立即重新分析
         })
 
-        if video_writers.get(camera_key) is not None:
+        if video_ffmpeg_procs.get(camera_key) is not None:
             try:
-                video_writers[camera_key].release()
+                proc = video_ffmpeg_procs[camera_key]
+                if proc.poll() is None:
+                    proc.stdin.close()
+                    proc.wait(timeout=5)
             except Exception as e:
-                print(f"[{camera_key}] release异常: {e}")
-            video_writers[camera_key] = None
+                print(f"[{camera_key}] ffmpeg 关闭异常: {e}")
+            video_ffmpeg_procs[camera_key] = None
         video_start_times[camera_key] = None
 
         latest_results[camera_key] = {f"e{i}": 0.0 for i in range(1, 15)}
@@ -430,6 +459,9 @@ async def start_happiness_analysis_if_ready(
 ):
     if not local_capabilities.enable_happiness_analysis or state["analyzing"]:
         return
+    # cooldown after reset — prevent immediate restart loop
+    if state.get("reset_at") and time.time() - state["reset_at"] < 3.0:
+        return
     face_rect = state.get("locked_rect") or state.get("last_detected_rect")
     if face_rect is None:
         return
@@ -559,6 +591,12 @@ async def generate_video_stream(
     # 共享帧缓冲：analysis_worker 通过此变量获取最新帧（Python 引用赋值是原子的）
     _shared_frame = None
     _analysis_task = None
+    _bg_tasks: set = set()  # 跟踪所有后台异步任务，确保清理
+
+    def _track_task(t: asyncio.Task) -> asyncio.Task:
+        _bg_tasks.add(t)
+        t.add_done_callback(_bg_tasks.discard)
+        return t
 
     async def _write_run_log(camera_id: int | None, code: str, name: str, st: str,
                              run_log_id: int | None = None, err: str = None) -> int | None:
@@ -579,6 +617,8 @@ async def generate_video_stream(
                         log_db, run_log_id, st, end_time=datetime.now(), error_message=err,
                     )
                     await log_db.commit()
+        except asyncio.CancelledError:
+            pass
         except Exception:
             pass
         return None
@@ -627,15 +667,19 @@ async def generate_video_stream(
                         state["prev_center"] = center
                         state["prev_size"] = size
 
-                # ---- 分析中：人脸丢失检测 ----
+                # ---- 分析中：人脸丢失检测（需连续丢失 N 次才重置） ----
                 if (state["analyzing"] and local_capabilities.enable_face_detection and
                     analysis_count % LOST_CHECK_INTERVAL == 0):
                     current_detect = await asyncio.to_thread(detect_face, frame)
                     if current_detect is None:
-                        print(f"[{source}] 人脸丢失，重置")
-                        reset_analysis_state(camera_key)
-                        await asyncio.to_thread(analyzer.reset)
-                        face_rect = None
+                        state["lost_face_count"] = state.get("lost_face_count", 0) + 1
+                        if state["lost_face_count"] >= LOST_FACE_THRESHOLD:
+                            print(f"[{source}] 人脸连续丢失 {state['lost_face_count']} 次，重置")
+                            reset_analysis_state(camera_key)
+                            await asyncio.to_thread(analyzer.reset)
+                            face_rect = None
+                    else:
+                        state["lost_face_count"] = 0
 
                 # ---- 人脸识别任务管理 ----
                 if recognize_task is not None and recognize_task.done():
@@ -664,12 +708,14 @@ async def generate_video_stream(
                         try:
                             name, _sim = await recognize_face(query_db, fr, rc, state)
                             await apply_recognition_match(name, rc, state, analyzer, local_capabilities)
+                        except asyncio.CancelledError:
+                            pass
                         except Exception:
                             pass
                         finally:
                             state["recognizing"] = False
 
-                    recognize_task = asyncio.create_task(_do_recognize(frame_snap, rect_snap))
+                    recognize_task = _track_task(asyncio.create_task(_do_recognize(frame_snap, rect_snap)))
 
                 await start_happiness_analysis_if_ready(state, analyzer, local_capabilities)
 
@@ -690,32 +736,62 @@ async def generate_video_stream(
                 if (state["analyzing"] and not state["analysis_completed"] and
                     local_capabilities.enable_happiness_analysis):
 
-                    if video_writers[camera_key] is None and state["analysis_start_time"] is not None:
+                    if video_ffmpeg_procs[camera_key] is None and state["analysis_start_time"] is not None:
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                         person_id_str = str(state.get('person_id') or 'unknown')
                         video_filename = f"{timestamp}_{source}_{person_id_str}.mp4"
                         video_full_path = os.path.join(VIDEO_SAVE_DIR, video_filename)
-                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                        video_writers[camera_key] = await asyncio.to_thread(
-                            cv2.VideoWriter, video_full_path, fourcc, RECORD_FPS, (640, 480)
-                        )
-                        video_start_times[camera_key] = time.time()
-                        state["current_video_path"] = video_full_path
-                        state["video_frame_count"] = 0
-                        print(f"[{source}] 【视频录制启动】 {video_full_path}")
 
-                    if video_writers[camera_key] is not None:
-                        video_writers[camera_key].write(frame)
-                        state["video_frame_count"] += 1
+                        # 使用 ffmpeg 直接录制 H.264（浏览器可播放）
+                        ffmpeg_cmd = [
+                            "ffmpeg", "-y",
+                            "-f", "rawvideo",
+                            "-pix_fmt", "bgr24",
+                            "-s", "640x480",
+                            "-r", str(int(RECORD_FPS)),
+                            "-i", "-",
+                            "-c:v", "libx264",
+                            "-preset", "ultrafast",
+                            "-crf", "28",
+                            "-an",
+                            "-movflags", "+faststart",
+                            "-loglevel", "error",
+                            video_full_path,
+                        ]
+                        try:
+                            proc = subprocess.Popen(
+                                ffmpeg_cmd,
+                                stdin=subprocess.PIPE,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE,
+                            )
+                            video_ffmpeg_procs[camera_key] = proc
+                            video_start_times[camera_key] = time.time()
+                            state["current_video_path"] = video_full_path
+                            state["video_frame_count"] = 0
+                            print(f"[{source}] 【视频录制启动(H.264)】 {video_full_path}")
+                        except FileNotFoundError:
+                            print(f"[{source}] 【错误】 ffmpeg 未安装，无法录制视频")
+                        except Exception as e:
+                            print(f"[{source}] 【错误】 启动 ffmpeg 录制失败: {e}")
 
-                    # 录制时长到达 → 保存到数据库
+                    # 录制时长到达 → 关闭 ffmpeg 并保存到数据库
+                    # 帧写入在 generate() 协程中完成（精确 20fps）
                     if video_start_times[camera_key] is not None:
                         elapsed = time.time() - video_start_times[camera_key]
                         if elapsed >= RECORD_DURATION:
-                            if video_writers[camera_key]:
-                                writer_to_release = video_writers[camera_key]
-                                video_writers[camera_key] = None
-                                await asyncio.to_thread(writer_to_release.release)
+                            proc_to_close = video_ffmpeg_procs.get(camera_key)
+                            if proc_to_close is not None and proc_to_close.poll() is None:
+                                try:
+                                    proc_to_close.stdin.close()
+                                except Exception:
+                                    pass
+                                try:
+                                    proc_to_close.wait(timeout=10)
+                                except subprocess.TimeoutExpired:
+                                    proc_to_close.kill()
+                                    proc_to_close.wait()
+                            video_ffmpeg_procs[camera_key] = None
                             video_start_times[camera_key] = None
 
                             mp4_path = state.get("current_video_path")
@@ -723,13 +799,51 @@ async def generate_video_stream(
                             state["analysis_start_time"] = None
 
                             final_results = dict(latest_results[camera_key])
-                            final_person_name = state.get("matched_person")
-                            final_person_id = state.get("person_id")
 
                             async def finalize_analysis():
+                                try:
+                                    await _finalize_impl()
+                                except Exception as e:
+                                    print(f"[{source}] finalize_analysis 异常: {e}")
+                                    traceback.print_exc()
+
+                            async def _finalize_impl():
+                                nonlocal mp4_path
                                 if not mp4_path or not os.path.exists(mp4_path) or os.path.getsize(mp4_path) <= 8000:
                                     print(f"[{source}] 【警告】 视频文件无效或太小，跳过DB保存")
                                     return
+
+                                # 从 state 实时读取匹配结果（face loop 可能异步更新了）
+                                save_person_name = state.get("matched_person")
+                                save_person_id = state.get("person_id")
+
+                                # 仅识别到真实人员时才保存视频和分析记录
+                                if not save_person_name or save_person_name == "Unknown" or not save_person_id:
+                                    print(
+                                        f"[{source}] 【跳过】 未识别到人员 "
+                                        f"(person_name={save_person_name}, person_id={save_person_id})，"
+                                        f"删除视频文件 {mp4_path}"
+                                    )
+                                    try:
+                                        os.remove(mp4_path)
+                                    except Exception:
+                                        pass
+                                    state["current_video_path"] = None
+                                    return
+
+                                # 用真实人员ID重命名视频文件
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                renamed_path = os.path.join(
+                                    VIDEO_SAVE_DIR,
+                                    f"{timestamp}_{source}_{save_person_id}.mp4"
+                                )
+                                try:
+                                    os.rename(mp4_path, renamed_path)
+                                    mp4_path = renamed_path
+                                    print(f"[{source}] 视频已重命名: {os.path.basename(renamed_path)}")
+                                except Exception as e:
+                                    print(f"[{source}] 视频重命名失败: {e}")
+
                                 state["current_video_path"] = mp4_path
                                 await persist_analysis_result(source, state, final_results, mp4_path)
 
@@ -745,19 +859,19 @@ async def generate_video_stream(
 
                                 # 低幸福指数预警邮件（在后台任务内直接 sleep 后发送，避免嵌套 create_task）
                                 happiness_index = float(final_results.get("e12", 0.0))
-                                if final_person_id and final_person_name and final_person_name != "Unknown" and happiness_index < 60:
+                                if save_person_id and save_person_name and save_person_name != "Unknown" and happiness_index < 60:
                                     await asyncio.sleep(10)
                                     try:
                                         await send_analysis_email(
                                             source=source,
-                                            state={"matched_person": final_person_name, "person_name": final_person_name, "person_id": final_person_id},
+                                            state={"matched_person": save_person_name, "person_name": save_person_name, "person_id": save_person_id},
                                             results=final_results,
                                             video_path=mp4_path
                                         )
                                     except Exception:
                                         pass
 
-                            asyncio.create_task(finalize_analysis())
+                            _track_task(asyncio.create_task(finalize_analysis()))
 
                 state["frame_count"] = analysis_count
                 await asyncio.sleep(0.03)
@@ -794,6 +908,16 @@ async def generate_video_stream(
                 # 将原始帧给分析 worker
                 _shared_frame = original_frame
 
+                # 视频录制：帧写入（generate 精确 20fps，避免 analysis_worker 丢帧导致视频加速）
+                if video_ffmpeg_procs[camera_key] is not None:
+                    proc = video_ffmpeg_procs[camera_key]
+                    if proc.poll() is None:
+                        try:
+                            proc.stdin.write(original_frame.tobytes())
+                            proc.stdin.flush()
+                        except (BrokenPipeError, OSError):
+                            video_ffmpeg_procs[camera_key] = None
+
                 # 画人脸框和识别信息（只读 state，不等待任何耗时操作）
                 face_rect = None
                 if state["analyzing"] and state["locked_rect"] is not None:
@@ -826,8 +950,24 @@ async def generate_video_stream(
             active_clients[camera_key] -= 1
             print(f"[{source}] 客户端断开连接，当前客户端数: {active_clients[camera_key]}")
 
+            # 取消所有后台任务（analysis_worker, finalize_analysis, recognize 等）
+            for task in list(_bg_tasks):
+                if not task.done():
+                    task.cancel()
             if _analysis_task is not None and not _analysis_task.done():
                 _analysis_task.cancel()
+
+            # 等待后台任务结束（最多 5 秒），避免 DB 连接泄漏
+            # 使用 asyncio.shield 确保即使客户端断开连接（generator 被取消），
+            # 后台任务也能被正确等待和清理
+            all_tasks = list(_bg_tasks)
+            if _analysis_task is not None:
+                all_tasks.append(_analysis_task)
+            for task in all_tasks:
+                try:
+                    await asyncio.shield(asyncio.wait_for(task, timeout=5))
+                except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                    pass
 
             if active_clients[camera_key] == 0:
                 if global_caps[camera_key]:
@@ -836,15 +976,18 @@ async def generate_video_stream(
                 if vid_id is not None:
                     algorithm_run_registry.stop_camera_runs(vid_id)
                 if state.get("current_run_log_id") is not None:
-                    await _write_run_log(
-                        vid_id, _local_algorithm_code, _local_algorithm_name,
-                        "stopped", run_log_id=state["current_run_log_id"],
-                    )
+                    try:
+                        await asyncio.shield(_write_run_log(
+                            vid_id, _local_algorithm_code, _local_algorithm_name,
+                            "stopped", run_log_id=state["current_run_log_id"],
+                        ))
+                    except Exception:
+                        pass
                 reset_analysis_state(camera_key)
 
     # 启动后台分析 worker（独立 asyncio Task，不阻塞 MJPEG 流）
     if local_analysis_enabled:
-        _analysis_task = asyncio.create_task(analysis_worker())
+        _analysis_task = _track_task(asyncio.create_task(analysis_worker()))
 
     return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")
 
