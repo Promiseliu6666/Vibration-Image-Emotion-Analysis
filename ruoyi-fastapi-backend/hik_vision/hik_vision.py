@@ -9,7 +9,7 @@ import asyncio
 import traceback
 import subprocess
 from datetime import datetime
-from fastapi import APIRouter, Query, HTTPException, Depends
+from fastapi import APIRouter, Query, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,9 +27,11 @@ videoController = APIRouter(
 )
 
 # ==================== 摄像头配置 ====================
-RTSP_URL = "rtsp://admin:witai515@192.168.3.6:554/main/h264/av_stream"
-LOCAL_CAMERA_INDEX = 1
+RTSP_URL = ""  # Configure CAMERA_RTSP_URL locally.
+LOCAL_CAMERA_INDEX = int(os.getenv("LOCAL_CAMERA_INDEX", "1"))
 SIMILARITY_THRESHOLD = 0.4
+
+RTSP_URL = os.getenv("CAMERA_RTSP_URL", RTSP_URL)
 
 # ==================== DNN 模型 ====================
 MODEL_PROTO = "deploy.prototxt"
@@ -84,7 +86,10 @@ RECOGNIZE_MIN_GAP_SECONDS = 2.5
 face_compare_semaphore = asyncio.Semaphore(1)
 
 
-def get_camera_cap(source: str):
+def _open_native_camera(source: str):
+    if source == 'xiaozhi' or source.startswith('xiaozhi:'):
+        from hik_vision.xiaozhi_capture import XiaozhiCapture
+        return XiaozhiCapture(source.partition(':')[2])
     if source == "local":
         print("[视频流] 使用本地摄像头")
         cap = cv2.VideoCapture(LOCAL_CAMERA_INDEX, cv2.CAP_DSHOW)
@@ -109,7 +114,7 @@ def get_camera_cap(source: str):
     elif source == "rtsp":
         if not RTSP_URL.strip():
             raise HTTPException(status_code=500, detail="RTSP地址未配置")
-        print(f"[视频流] 使用RTSP摄像头 {RTSP_URL}")
+        print("[视频流] 使用RTSP摄像头")
 
         os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;tcp|timeout;5000000'
 
@@ -133,6 +138,13 @@ def get_camera_cap(source: str):
     else:
         raise HTTPException(status_code=400, detail="无效的source参数")
 
+
+from hik_vision.camera_hub import CameraHub
+camera_hubs = {source: CameraHub(source, _open_native_camera) for source in ('local','rtsp')}
+def get_camera_cap(source: str):
+    if source not in camera_hubs:
+        raise HTTPException(400, '无效的摄像头来源')
+    return camera_hubs[source].subscribe()
 
 global_caps = {"local": None, "rtsp": None}
 active_clients = {"local": 0, "rtsp": 0}
@@ -177,6 +189,26 @@ stable_state = {
     }
 }
 
+
+import copy,re
+
+def resolve_camera_source(source, device_id=''):
+    if source not in ('local','rtsp','xiaozhi'):
+        raise HTTPException(400,'无效的摄像头来源')
+    if source!='xiaozhi':return source
+    if device_id and not re.fullmatch(r'[A-Za-z0-9:_-]{1,64}',device_id):
+        raise HTTPException(400,'小智设备编号格式不正确')
+    key='xiaozhi'+(':'+device_id if device_id else '')
+    if key not in stable_state:
+        if len(stable_state)>64:raise HTTPException(429,'摄像头会话过多，请重启后台释放')
+        stable_state[key]=copy.deepcopy(stable_state_template)
+        global_caps[key]=None;active_clients[key]=0
+        latest_results[key]={f'e{i}':0.0 for i in range(1,15)}
+        video_writers[key]=None;video_start_times[key]=None
+        camera_hubs[key]=CameraHub(key,_open_native_camera)
+    return key
+stable_state_template=copy.deepcopy(stable_state['local'])
+resolve_camera_source('xiaozhi')
 
 async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, results: dict, video_path: str = None):
     try:
@@ -228,6 +260,7 @@ async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, result
 def reset_analysis_state(source: str):
     if source in stable_state:
         state = stable_state[source]
+        state["session_generation"] = state.get("session_generation",0)+1
         state.update({
             "stable_count": 0, "prev_center": None, "prev_size": None,
             "locked_rect": None, "analyzing": False, "frame_count": 0,
@@ -241,7 +274,7 @@ def reset_analysis_state(source: str):
             "current_video_path": None,
             "video_frame_count": 0,
             "recognizing": False,
-            "last_recognize_at": 0.0
+            "last_recognize_at": 0.0, "result_samples":0,"sample_frames":0,"stability_progress":0.,"stage":"searching","last_error":None
         })
 
         if video_writers.get(source) is not None:
@@ -280,12 +313,18 @@ def draw_face_recognition(frame: np.ndarray, name: str, similarity: float, rect:
         cv2.putText(frame, label, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
 
+import threading
+_face_detector_local=threading.local()
+
 def detect_face(frame: np.ndarray):
     try:
         (h, w) = frame.shape[:2]
         blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
-        face_net.setInput(blob)
-        detections = face_net.forward()
+        net=getattr(_face_detector_local,'net',None)
+        if net is None:
+            net=cv2.dnn.readNetFromCaffe(MODEL_PROTO,MODEL_WEIGHTS);_face_detector_local.net=net
+        net.setInput(blob)
+        detections = net.forward()
 
         best_rect = None
         max_confidence = 0.5
@@ -391,19 +430,17 @@ async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, 
 # ==================== 主视频流函数（已包含ffmpeg转码后删除AVI功能） ====================
 @videoController.get("/feed/analysis")
 async def generate_video_stream(
+        request: Request,
         source: str = Query(default='local'),
+        device_id: str = Query(default=''),
         query_db: AsyncSession = Depends(get_db)
 ):
-    if source not in ["local", "rtsp"]:
-        raise HTTPException(status_code=400, detail="无效的source参数")
+    source = resolve_camera_source(source, device_id)
 
     active_clients[source] += 1
     print(f"[{source}] 新客户端连接，当前活跃客户端数: {active_clients[source]}")
 
-    if global_caps[source] is None:
-        global_caps[source] = get_camera_cap(source)
-
-    cap = global_caps[source]
+    cap = get_camera_cap(source)
     state = stable_state[source]
     analyzer = VibraimageCore()
     analyzer.halo_params["ACCUMULATE_FRAMES"] = 5
@@ -412,9 +449,14 @@ async def generate_video_stream(
         frame_count = 0
         last_frame_time = time.time()
         recognize_task = None
+        from hik_vision.face_stability import FaceStabilityGate
+        from collections import deque
+        gate=FaceStabilityGate()
+        frame_times=deque(maxlen=20)
+        last_detection=-float('inf')
 
         try:
-            while active_clients[source] > 0:
+            while not await request.is_disconnected():
                 ret, frame = cap.read()
                 if not ret:
                     await asyncio.sleep(0.01)
@@ -425,39 +467,29 @@ async def generate_video_stream(
                 if source == 'local':
                     display_frame = cv2.flip(display_frame, 1)
 
-                face_rect = None
-                should_detect = (frame_count % FACE_DETECT_INTERVAL == 0)
-
-                if state["analyzing"] and state["locked_rect"] is not None:
-                    face_rect = state["locked_rect"]
-                elif should_detect:
-                    face_rect = await asyncio.to_thread(detect_face, display_frame)
-                    if face_rect is not None:
-                        state["last_detected_rect"] = face_rect
-                        x, y, w, h = face_rect
-                        center = (x + w // 2, y + h // 2)
-                        size = (w, h)
-
-                        if state["prev_center"] is not None:
-                            center_dist = np.linalg.norm(np.array(center) - np.array(state["prev_center"]))
-                            size_dist = np.linalg.norm(np.array(size) - np.array(state["prev_size"]))
-                            if center_dist < TOLERANCE and size_dist < TOLERANCE:
-                                state["stable_count"] += 1
-                            else:
-                                state["stable_count"] = 0
-                        else:
-                            state["stable_count"] = 1
-
-                        state["prev_center"] = center
-                        state["prev_size"] = size
-
-                if state["analyzing"] and frame_count % LOST_CHECK_INTERVAL == 0:
-                    current_detect = await asyncio.to_thread(detect_face, display_frame)
-                    if current_detect is None:
-                        print(f"[{source}] 人脸丢失，重置")
-                        reset_analysis_state(source)
-                        analyzer.reset()
-                        face_rect = None
+                now=time.monotonic()
+                frame_times.append(now)
+                fps=(len(frame_times)-1)/(frame_times[-1]-frame_times[0]) if len(frame_times)>1 and frame_times[-1]>frame_times[0] else cap.get(cv2.CAP_PROP_FPS) or 3
+                state['observed_fps']=round(fps,2)
+                if now-last_detection>=.35:
+                    detected=await asyncio.to_thread(detect_face,original_frame)
+                    last_detection=now
+                    transition=gate.observe(detected,now)
+                    if transition['lost'] or (transition['changed'] and state['analyzing']):
+                        reset_analysis_state(source);analyzer.reset()
+                    state['stable_count']=gate.count
+                    state['stability_progress']=transition['progress']
+                    state['last_detected_rect']=gate.rect
+                face_rect=gate.rect if gate.visible(now) else None
+                if not state['analyzing']:
+                    state['stage']='stabilizing' if face_rect is not None else 'searching'
+                if gate.ready and face_rect is not None and not state['analyzing']:
+                    state['locked_rect']=face_rect;state['analyzing']=True
+                    state['analysis_start_time']=time.time();state['analysis_completed']=False
+                    state['stage']='collecting';state['result_samples']=0;state['sample_frames']=0
+                    analyzer.reset()
+                elif state['analyzing'] and face_rect is not None:
+                    state['locked_rect']=face_rect
 
                 # 人脸识别
                 if recognize_task is not None and recognize_task.done():
@@ -469,41 +501,34 @@ async def generate_video_stream(
 
                 can_recognize = (
                     face_rect is not None
+                    and recognize_task is None
+                    and state.get("result_samples",0)>0
                     and not state["identified"]
-                    and not state["analyzing"]
                     and not state.get("recognizing", False)
-                    and frame_count % RECOGNIZE_INTERVAL == 0
                     and (time.time() - float(state.get("last_recognize_at", 0.0))) >= RECOGNIZE_MIN_GAP_SECONDS
                 )
                 if can_recognize:
                     state["recognizing"] = True
                     state["last_recognize_at"] = time.time()
-                    frame_snapshot = frame.copy()
+                    frame_snapshot = original_frame.copy()
                     face_rect_snapshot = tuple(face_rect)
 
+                    generation=state.get('session_generation',0)
+                    recognition_state=state.copy()
                     async def _run_recognize(frame_data, rect_data):
                         try:
-                            name, _similarity = await recognize_face(query_db, frame_data, rect_data, state)
-                            if name and name != "Unknown":
-                                state["locked_rect"] = rect_data
-                                state["analyzing"] = True
-                                state["analysis_start_time"] = time.time()
-                                analyzer.reset()
+                            from config.database import AsyncSessionLocal
+                            async with AsyncSessionLocal() as identity_db:
+                                await recognize_face(identity_db,frame_data,rect_data,recognition_state)
+                            if state.get('session_generation',0)==generation and recognition_state.get('identified'):
+                                for key in ('identified','matched_person','person_id','match_similarity','feature_extracted'):
+                                    state[key]=recognition_state.get(key)
                         except Exception as rec_err:
-                            print(f"[{source}] recognize failed: {rec_err}")
+                            print(f"[{source}] identity match unavailable: {type(rec_err).__name__}")
                         finally:
-                            state["recognizing"] = False
+                            state['recognizing']=False
 
                     recognize_task = asyncio.create_task(_run_recognize(frame_snapshot, face_rect_snapshot))
-
-                if False and (face_rect is not None and not state["identified"] and frame_count % RECOGNIZE_INTERVAL == 0):
-                    name, similarity = await recognize_face(query_db, frame, face_rect, state)
-                    if name and name != "Unknown":
-                        print(f"[{source}] 识别到具体人员: {name}，开始锁定分析")
-                        state["locked_rect"] = face_rect
-                        state["analyzing"] = True
-                        state["analysis_start_time"] = time.time()
-                        analyzer.reset()
 
                 if face_rect is not None:
                     remaining_time = None
@@ -511,18 +536,20 @@ async def generate_video_stream(
                         elapsed = time.time() - state["analysis_start_time"]
                         remaining_time = max(0, state["analysis_duration"] - elapsed)
 
+                    draw_rect=(640-face_rect[0]-face_rect[2],face_rect[1],face_rect[2],face_rect[3]) if source=="local" else face_rect
                     draw_face_recognition(display_frame, state.get("matched_person") or "Unknown",
-                                          state.get("match_similarity", 0.0), face_rect,
+                                          state.get("match_similarity", 0.0), draw_rect,
                                           is_locked=state["analyzing"], remaining_time=remaining_time)
 
                     # 录制与分析完成
                     if (state["analyzing"] and not state["analysis_completed"] and
-                        state.get("matched_person") != "Unknown"):
+                        state.get("identified") and state.get("person_id") and state.get("matched_person") not in (None,"Unknown", "")):
 
                         if video_writers[source] is None and state["analysis_start_time"] is not None:
                             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                             person_id_str = str(state.get('person_id') or 'unknown')
-                            video_filename = f"{timestamp}_{source}_{person_id_str}.avi"
+                            safe_source=re.sub(r"[^A-Za-z0-9_-]","_",source)
+                            video_filename = f"{timestamp}_{safe_source}_{person_id_str}.avi"
                             video_full_path = os.path.join(VIDEO_SAVE_DIR, video_filename)
                             fourcc = cv2.VideoWriter_fourcc(*'XVID')
 
@@ -539,7 +566,7 @@ async def generate_video_stream(
                         # ==================== 录制时长到达 → 转码 + 删除AVI ====================
                         if video_start_times[source] is not None:
                             elapsed = time.time() - video_start_times[source]
-                            if elapsed >= RECORD_DURATION:
+                            if elapsed >= RECORD_DURATION and state.get("result_samples",0)>0:
                                 if video_writers[source]:
                                     video_writers[source].release()
                                     video_writers[source] = None
@@ -635,22 +662,27 @@ async def generate_video_stream(
                                             print(f"[{source}] 跳过邮件发送：{reason}")
 
                 # 振动分析
-                if (state["analyzing"] and not state["analysis_completed"] and
-                    frame_count % ANALYSIS_INTERVAL == 0 and state.get('matched_person') != "Unknown"):
+                if state["analyzing"] and not state["analysis_completed"] and face_rect is not None:
                     try:
-                        fps = cap.get(cv2.CAP_PROP_FPS) or 30
+                        fps=max(.5,min(60.,fps))
                         analysis_results = await asyncio.to_thread(
                             analyzer.process_frame, original_frame, face_rect=face_rect, fps=fps
                         )
-                        if analysis_results:
+                        state['sample_frames']=len(analyzer.frame_buffer)
+                        if analysis_results and all(np.isfinite(float(value)) for value in analysis_results.values()):
                             latest_results[source].update(analysis_results)
+                            state['result_samples']=state.get('result_samples',0)+1
+                            state['last_result_at']=time.time();state['stage']='analyzing';state['last_error']=None
                     except Exception as e:
-                        pass
+                        state['last_error']='本帧计算失败，正在等待有效画面';state['stage']='error'
+                if state['analyzing'] and not state['analysis_completed'] and not state.get('identified') and state.get('result_samples',0)>0 and time.time()-state['analysis_start_time']>=RECORD_DURATION:
+                    state['analysis_completed']=True;state['stage']='complete'
+
 
                 frame_count += 1
                 state["frame_count"] = frame_count
 
-                _, buffer = cv2.imencode('.jpg', display_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 45])
+                _, buffer = await asyncio.to_thread(cv2.imencode, '.jpg', display_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 45])
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
                 await asyncio.sleep(max(0.001, 1/30 - (time.time() - last_frame_time)))
@@ -664,10 +696,11 @@ async def generate_video_stream(
                 recognize_task.cancel()
                 try:
                     await recognize_task
-                except Exception:
+                except (Exception,asyncio.CancelledError):
                     pass
 
-            active_clients[source] -= 1
+            cap.release()
+            active_clients[source] = max(0,active_clients[source]-1)
             print(f"[{source}] 客户端断开连接，当前客户端数: {active_clients[source]}")
 
             if active_clients[source] == 0:
@@ -681,10 +714,19 @@ async def generate_video_stream(
 
 # ==================== 其他接口 ====================
 @videoController.get("/results")
-async def get_analysis_results(source: str = Query(None)):
+async def get_analysis_results(source: str = Query(None), device_id: str = ''):
+    if source:source=resolve_camera_source(source,device_id)
     if source and source in stable_state:
         state = stable_state[source]
         return {
+            "stage": 'complete' if state['analysis_completed'] else state.get('stage','searching'),
+            "has_results": state.get('result_samples',0)>0,
+            "result_samples": state.get('result_samples',0),
+            "sample_frames": state.get('sample_frames',0),
+            "stability_progress": state.get('stability_progress',0),
+            "observed_fps": state.get('observed_fps',0),
+            "identified": bool(state.get('identified')),
+            "message": ('分析完成，未匹配人员，不关联人员档案' if not state.get('identified') else '分析完成') if state['analysis_completed'] else state.get('last_error') or ('正在分析画面' if state.get('result_samples',0)>0 else '人脸已稳定，正在积累有效画面' if state['analyzing'] else '已检测到人脸，正在确认画面稳定' if state.get('stage')=='stabilizing' else '未检测到清晰人脸，请调整取景'),
             "analyzing": state["analyzing"],
             "completed": state["analysis_completed"],
             "recognizing": state.get("recognizing", False),
@@ -710,14 +752,55 @@ async def get_analysis_results(source: str = Query(None)):
 
 
 @videoController.get("/reset")
-async def reset_analysis(source: str = Query(..., description="local 或 rtsp")):
+async def reset_analysis(source: str = Query(...), device_id: str = ''):
+    source=resolve_camera_source(source,device_id)
     if source not in stable_state:
         raise HTTPException(status_code=400, detail="无效的source参数")
 
-    active_clients[source] = 0
     if global_caps[source]:
         global_caps[source].release()
         global_caps[source] = None
 
     reset_analysis_state(source)
     return {"status": "success", "message": f"{source} 已重置"}
+
+
+# Authenticated local raw-frame sharing. Analysis overlays never enter Xiaozhi.
+from fastapi import Request
+from fastapi.responses import Response
+from pathlib import Path
+import hmac
+
+@videoController.get('/shared/frame')
+async def shared_camera_frame(request: Request, source: str = 'local'):
+    if request.client is None or request.client.host not in ('127.0.0.1','::1'):
+        raise HTTPException(403, '仅允许本机共享摄像头')
+    secret_file = Path(__file__).resolve().parents[2] / '.runtime/camera-bridge-secret.txt'
+    supplied = request.headers.get('X-Camera-Bridge-Key', '')
+    if not secret_file.exists() or not hmac.compare_digest(supplied, secret_file.read_text(encoding='utf-8').strip()):
+        raise HTTPException(403, '共享摄像头认证失败')
+    if source not in camera_hubs:
+        raise HTTPException(400, '无效的摄像头来源')
+    hub = camera_hubs[source]
+    deadline = time.monotonic()+5
+    while time.monotonic()<deadline:
+        frame, sequence, captured_at = hub.latest()
+        if frame is not None:
+            ok, jpeg = await asyncio.to_thread(cv2.imencode, '.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY),80])
+            if ok:
+                return Response(jpeg.tobytes(),media_type='image/jpeg',headers={
+                    'Cache-Control':'no-store','X-Frame-Sequence':str(sequence),'X-Captured-At':str(captured_at)})
+        await asyncio.sleep(.08)
+    raise HTTPException(503, hub.error or '摄像头未返回新画面')
+
+from module_admin.service.login_service import LoginService
+from fastapi import Depends
+@videoController.get('/xiaozhi/devices')
+async def xiaozhi_camera_devices(user=Depends(LoginService.get_current_user)):
+    import httpx
+    f=Path(__file__).resolve().parents[2]/'.runtime/camera-bridge-secret.txt'
+    try:
+        async with httpx.AsyncClient(trust_env=False,timeout=8) as client:
+            r=await client.get('http://127.0.0.1:8000/api/camera-source/devices',headers={'X-Camera-Bridge-Key':f.read_text(encoding='utf-8').strip()})
+            r.raise_for_status();return r.json()
+    except Exception:raise HTTPException(503,'小智服务未连接，请检查设备管理与后台服务')

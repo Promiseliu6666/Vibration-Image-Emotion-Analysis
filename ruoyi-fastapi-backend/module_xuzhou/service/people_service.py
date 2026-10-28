@@ -14,9 +14,7 @@ from typing import Any, Optional
 os.environ.setdefault("GLOG_minloglevel", "2")
 
 import numpy as np
-import paddle
 from PIL import Image
-from paddlex import create_model
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from module_xuzhou.dao.people_dao import PeopleDao
@@ -26,6 +24,7 @@ from utils.common_util import CamelCaseUtil
 from utils.log_util import logger
 
 feature_extractor = None
+_feature_extractor_task = None
 
 # Lightweight in-memory cache for group vectors.
 FEATURE_CACHE_TTL_SECONDS = 30
@@ -37,9 +36,14 @@ feature_extract_lock = asyncio.Lock()
 
 
 async def get_feature_extractor():
-    global feature_extractor
-    if feature_extractor is None:
-        feature_extractor = FaceFeatureExtractor()
+    global feature_extractor, _feature_extractor_task
+    if feature_extractor is not None:
+        return feature_extractor
+    if (_feature_extractor_task is None or _feature_extractor_task.cancelled()
+            or (_feature_extractor_task.done() and _feature_extractor_task.exception() is not None)):
+        _feature_extractor_task = asyncio.create_task(asyncio.to_thread(FaceFeatureExtractor))
+    # A recognition timeout must not cancel and repeatedly restart heavy model initialization.
+    feature_extractor = await asyncio.shield(_feature_extractor_task)
     return feature_extractor
 
 
@@ -243,6 +247,9 @@ class FaceFeatureExtractor:
     """Face feature extractor."""
 
     def __init__(self):
+        import paddle
+        from paddlex import create_model
+        self.paddle = paddle
         # Suppress noisy model-init stdout text like:
         # "Model files already exist. Using cached files..."
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
@@ -318,7 +325,7 @@ class FaceFeatureExtractor:
 
         x1, y1, x2, y2 = largest_box
         cropped: np.ndarray = image_np[y1:y2, x1:x2]
-        with paddle.no_grad(), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+        with self.paddle.no_grad(), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
             features: list = list(self.extract_feature_model.predict(cropped))
 
         if len(features) != 1:
@@ -327,7 +334,7 @@ class FaceFeatureExtractor:
 
     def extract_features(self, base64_string: str) -> np.ndarray:
         image_np: np.ndarray = self._detect_person(base64_string)
-        with paddle.no_grad(), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+        with self.paddle.no_grad(), redirect_stdout(StringIO()), redirect_stderr(StringIO()):
             features: list = list(self.extract_feature_model.predict(image_np))
         if len(features) == 0:
             raise InvalidPictureError("No face recognized")

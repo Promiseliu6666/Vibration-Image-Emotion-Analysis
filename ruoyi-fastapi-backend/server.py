@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import asyncio
+import os
 
 from fastapi import FastAPI
 from fastapi.openapi.docs import (
@@ -56,13 +57,17 @@ async def lifespan(app: FastAPI):
     app.state.redis = await RedisUtil.create_redis_pool()
     await RedisUtil.init_sys_dict(app.state.redis)
     await RedisUtil.init_sys_config(app.state.redis)
-    app.state.rabbitmq = await RabbitMQUtil.create_rabbitmq_pool()
-    await RabbitMQUtil.init_xuzhou_exchange_queue(app, message_callback)
+    if os.getenv('LOCAL_DISABLE_RABBITMQ', 'false').lower() != 'true':
+        app.state.rabbitmq = await RabbitMQUtil.create_rabbitmq_pool()
+        await RabbitMQUtil.init_xuzhou_exchange_queue(app, message_callback)
+    else:
+        logger.warning('Local mode: external RabbitMQ workers disabled')
     await SchedulerUtil.init_system_scheduler()
     
     # 启动推理监控器（在后台任务中运行）
-    asyncio.create_task(start_inference_monitor())
-    logger.info(f'{AppConfig.app_name}推理监控器已启动')
+    if os.getenv('LOCAL_DISABLE_INFERENCE_MONITOR', 'false').lower() != 'true':
+        asyncio.create_task(start_inference_monitor())
+        logger.info(f'{AppConfig.app_name}推理监控器已启动')
     
     logger.info(f'{AppConfig.app_name}启动成功')
     yield
@@ -142,3 +147,6 @@ for controller in controller_list:
     app.include_router(router=controller.get('router'), tags=controller.get('tags'))
 
 app.include_router(router=managerCompatController, tags=['Manager API Compatibility'])
+
+from xiaozhi_integration import router as xiaozhi_integration_router
+app.include_router(xiaozhi_integration_router)

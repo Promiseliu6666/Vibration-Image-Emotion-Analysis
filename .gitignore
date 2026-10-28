@@ -145,3 +145,21 @@ cython_debug/
 nohup.out
 *.zip
 *.mjs
+
+# Local health-monitoring runtime and private data
+**/.runtime/
+**/.run/
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/logs/
+**/frames/
+**/videos/
+**/dist/
+.env
+.env.dev
+.env.prod
+*.bak
+*.db
+*.sqlite
+*.sqlite3

@@ -1,0 +1,19 @@
+/* Integrated with the main system: one sidebar, one account menu, one palette. */
+body.health-embedded{background:#f4f7fb!important;color:#253b53!important;display:block!important;--accent:#296b9e;--primary:#296b9e;--bg:#f4f7fb;--panel:#fff;font-family:"Microsoft YaHei",sans-serif!important}
+body.health-embedded>aside,body.health-embedded .assistant-orb,body.health-embedded .assistant-orb-panel,body.health-embedded .assistant-launcher,body.health-embedded #studyInsights,body.health-embedded .study-tasks,body.health-embedded .study-tools,body.health-embedded #healthWindowCard{display:none!important}
+body.health-embedded>main{margin:0!important;margin-left:0!important;padding:24px!important;max-width:none!important;width:100%!important;background:#f4f7fb!important;min-height:100vh}
+body.health-embedded>main>header{background:transparent!important;box-shadow:none!important;border:0!important;margin:0 0 22px!important;padding:0!important;position:static!important}
+body.health-embedded h1{font-size:24px!important;font-weight:600!important;color:#20364d!important;letter-spacing:0!important}
+body.health-embedded h2{font-size:17px!important;font-weight:600!important;color:#29435c!important}
+body.health-embedded article,body.health-embedded .card,body.health-embedded .panel{border:1px solid #e2e8f0!important;border-radius:8px!important;box-shadow:none!important;background:#fff!important}
+body.health-embedded button,body.health-embedded input,body.health-embedded select{border-radius:5px!important;font-family:inherit!important}
+body.health-embedded button.primary{background:#296b9e!important;color:#fff!important;border-color:#296b9e!important;box-shadow:none!important}
+body.health-embedded .page{padding:0!important}body.health-embedded #todayLabel{display:none!important}
+body.health-embedded .header-actions{gap:10px!important}body.health-embedded .brand,body.health-embedded .account-menu{display:none!important}
+body.health-embedded .live-grid,body.health-embedded .monitor-grid{gap:20px!important}
+@media(max-width:700px){body.health-embedded>main{padding:16px!important}}
+
+body.health-embedded,body.health-embedded *{font-family:"Microsoft YaHei","Segoe UI",sans-serif!important}
+body.health-embedded details:has(#studyTaskForm),body.health-embedded [id*="assistant"],body.health-embedded [class*="assistant-"]{display:none!important}
+body.health-embedded button.primary{background:#3165d7!important;border-color:#3165d7!important}
+body.health-embedded .badge.good{background:#edf3ff!important;color:#3567b3!important}

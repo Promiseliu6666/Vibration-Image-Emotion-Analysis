@@ -12,10 +12,12 @@ from module_xuzhou.entity.vo.agent_vo import AgentMessagePageQueryModel, SaveAge
 from utils.common_util import CamelCaseUtil
 from utils.log_util import logger
 
-client = AsyncOpenAI(
-    api_key=os.getenv("DASHSCOPE_API_KEY"),
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-)
+def get_ai_client():
+    api_key = os.getenv("DASHSCOPE_API_KEY")
+    if not api_key:
+        raise ValueError("DASHSCOPE_API_KEY is required for AI chat")
+    return AsyncOpenAI(api_key=api_key, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1")
+
 
 
 class AgentService:
@@ -277,7 +279,7 @@ class AgentService:
             else:
                 messages.append({"role": "user", "content": user_content})
 
-            stream = await client.chat.completions.create(
+            stream = await get_ai_client().chat.completions.create(
                 model=model,
                 messages=messages,
                 modalities=["text", "audio"],
