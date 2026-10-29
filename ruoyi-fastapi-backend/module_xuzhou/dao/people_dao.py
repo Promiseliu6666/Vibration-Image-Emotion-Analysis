@@ -1,10 +1,10 @@
-import json
 from datetime import datetime
 from typing import Sequence
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from module_xuzhou.entity.do.group_do import PeopleGroup  # noqa: F401
 from module_xuzhou.entity.do.people_do import PeopleFace
 from module_xuzhou.entity.vo.people_vo import PeoplePageQueryModel, PeopleModelWithFeatures
 from utils.page_util import PageUtil
@@ -46,8 +46,7 @@ class PeopleDao:
 
     @classmethod
     async def add_people_dao(cls, db: AsyncSession, people: PeopleModelWithFeatures):
-        feature_str = json.dumps(people.features)
-        db_people = PeopleFace(**{'features': feature_str}, **people.model_dump(exclude={'features'}))
+        db_people = PeopleFace(**people.model_dump())
         db.add(db_people)
         await db.flush()
 

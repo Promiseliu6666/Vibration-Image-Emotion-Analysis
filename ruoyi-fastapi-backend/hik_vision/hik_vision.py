@@ -28,8 +28,8 @@ videoController = APIRouter(
 
 # ==================== 摄像头配置 ====================
 RTSP_URL = "rtsp://admin:witai515@192.168.3.6:554/main/h264/av_stream"
-LOCAL_CAMERA_INDEX = 1
-SIMILARITY_THRESHOLD = 0.4
+LOCAL_CAMERA_INDEX = 0
+SIMILARITY_THRESHOLD = float(os.getenv("FACE_SIMILARITY_THRESHOLD", "0.25"))
 
 # ==================== DNN 模型 ====================
 MODEL_PROTO = "deploy.prototxt"
@@ -87,23 +87,30 @@ face_compare_semaphore = asyncio.Semaphore(1)
 def get_camera_cap(source: str):
     if source == "local":
         print("[视频流] 使用本地摄像头")
-        cap = cv2.VideoCapture(LOCAL_CAMERA_INDEX, cv2.CAP_DSHOW)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        camera_indices = list(dict.fromkeys([LOCAL_CAMERA_INDEX, 0, 1, 2]))
 
-        start_time = time.time()
-        while time.time() - start_time < 3:
-            ret, _ = cap.read()
-            if ret:
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                cap.set(cv2.CAP_PROP_FPS, 30)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                print("[视频流] 本地摄像头已就绪")
-                return cap
-            time.sleep(0.05)
+        for camera_index in camera_indices:
+            cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap.release()
+                print(f"[视频流] 本地摄像头索引 {camera_index} 无法打开")
+                continue
 
-        cap.release()
+            start_time = time.time()
+            while time.time() - start_time < 3:
+                ret, _ = cap.read()
+                if ret:
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    cap.set(cv2.CAP_PROP_FPS, 30)
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    print(f"[视频流] 本地摄像头索引 {camera_index} 已就绪")
+                    return cap
+                time.sleep(0.05)
+
+            cap.release()
+            print(f"[视频流] 本地摄像头索引 {camera_index} 无法读取画面")
+
         raise HTTPException(status_code=500, detail="本地摄像头无法打开")
 
     elif source == "rtsp":
@@ -326,17 +333,19 @@ def encode_face_image(frame: np.ndarray, face_rect: tuple) -> str:
 
     h, w = frame.shape[:2]
     max_side = max(h, w)
-    if max_side > 320:
-        scale = 320.0 / max_side
+    if max_side > 640:
+        scale = 640.0 / max_side
         frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
 
-    _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
+    _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
     return base64.b64encode(buffer).decode('utf-8')
 
 
 async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, state: dict):
     try:
-        current_image_base64 = await asyncio.to_thread(encode_face_image, frame, face_rect)
+        # PaddleX performs its own face detection and cropping. Passing the
+        # full frame avoids cropping an already-tight face region twice.
+        current_image_base64 = await asyncio.to_thread(encode_face_image, frame, None)
 
         async with face_compare_semaphore:
             compare_results = await asyncio.wait_for(
@@ -424,6 +433,9 @@ async def generate_video_stream(
                 display_frame = original_frame.copy()
                 if source == 'local':
                     display_frame = cv2.flip(display_frame, 1)
+                # Detection, recognition, and vibration analysis must share the
+                # same orientation and pixel coordinate system.
+                processing_frame = display_frame
 
                 face_rect = None
                 should_detect = (frame_count % FACE_DETECT_INTERVAL == 0)
@@ -478,7 +490,7 @@ async def generate_video_stream(
                 if can_recognize:
                     state["recognizing"] = True
                     state["last_recognize_at"] = time.time()
-                    frame_snapshot = frame.copy()
+                    frame_snapshot = processing_frame.copy()
                     face_rect_snapshot = tuple(face_rect)
 
                     async def _run_recognize(frame_data, rect_data):
@@ -640,7 +652,7 @@ async def generate_video_stream(
                     try:
                         fps = cap.get(cv2.CAP_PROP_FPS) or 30
                         analysis_results = await asyncio.to_thread(
-                            analyzer.process_frame, original_frame, face_rect=face_rect, fps=fps
+                            analyzer.process_frame, processing_frame, face_rect=face_rect, fps=fps
                         )
                         if analysis_results:
                             latest_results[source].update(analysis_results)
