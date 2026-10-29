@@ -100,10 +100,10 @@ async def send_analysis_email(
         )
 
         await fm.send_message(message)
-        print(f"[{source}] ✅ 低幸福指数预警邮件已发送 → {recipient_email} | 幸福指数: {happiness_index:.1f}")
+        print(f"[{source}] [OK] 低幸福指数预警邮件已发送 -> {recipient_email} | 幸福指数: {happiness_index:.1f}")
         return True
 
     except Exception as e:
-        print(f"[{source}] ❌ 邮件发送失败: {e}")
+        print(f"[{source}] [ERROR] 邮件发送失败: {e}")
         traceback.print_exc()
         return False

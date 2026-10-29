@@ -35,8 +35,32 @@
       <span>{{ xiaozhiSourceError || '仅使用小智原始画面，不会切换为本机摄像头' }}</span>
       <router-link to="/xiaozhi/devices">管理小智设备</router-link>
     </div>
+
+    <section
+      v-if="emailStatus !== 'idle'"
+      class="email-feedback"
+      :class="`email-feedback--${emailStatus}`"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="email-feedback__mark" aria-hidden="true">
+        <el-icon><Message /></el-icon>
+      </div>
+      <div class="email-feedback__body">
+        <div class="email-feedback__meta">
+          <span class="email-feedback__eyebrow">自动预警 · 邮件通知</span>
+          <span class="email-feedback__state">{{ emailStatusLabel }}</span>
+        </div>
+        <div class="email-feedback__heading">
+          <h3>{{ emailFeedbackTitle }}</h3>
+          <time v-if="emailTimestamp">{{ emailTimestamp }}</time>
+        </div>
+        <p>{{ emailMessage || '邮件发送状态正在更新，请稍候。' }}</p>
+      </div>
+    </section>
+
     <!-- 主内容区 -->
-    <div class="main-content">
+    <div class="main-content" :class="{ 'main-content--with-email': emailStatus !== 'idle' }">
       <!-- 左侧：视频流 -->
       <div class="video-section">
         <div v-if="cameraSource==='xiaozhi'&&parallelPreview" class="parallel-cameras">
@@ -259,7 +283,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
-import { Refresh, User } from '@element-plus/icons-vue'
+import { Message, Refresh, User } from '@element-plus/icons-vue'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
 
@@ -292,6 +316,24 @@ const hasAnalysisResults=ref(false)
 const analysisMessage=ref('等待清晰人脸画面')
 const stabilityProgress=ref(0)
 const analysisCompleted = ref(false) // 新增：分析完成状态
+const emailStatus = ref('idle')
+const emailMessage = ref('')
+const emailUpdatedAt = ref(null)
+const emailStatusLabel = computed(() => ({
+  sending: '正在发送',
+  sent: '发送成功',
+  failed: '发送失败',
+  skipped: '未触发'
+}[emailStatus.value] || '状态更新'))
+const emailFeedbackTitle = computed(() => ({
+  sending: '预警邮件正在投递',
+  sent: '预警邮件已发送',
+  failed: '预警邮件未能发送',
+  skipped: '本次分析未触发邮件'
+}[emailStatus.value] || '邮件状态'))
+const emailTimestamp = computed(() => emailUpdatedAt.value
+  ? new Date(emailUpdatedAt.value * 1000).toLocaleString('zh-CN', { hour12: false })
+  : '')
 let pollTimer = null
 
 const isShowE1E10 = ref(false)
@@ -460,6 +502,9 @@ const clearResults = () => {
   analysisMessage.value='等待清晰人脸画面'
   stabilityProgress.value=0
   analysisCompleted.value = false // 重置分析完成状态
+  emailStatus.value='idle'
+  emailMessage.value=''
+  emailUpdatedAt.value=null
   isShowE1E10.value = false
 }
 
@@ -479,6 +524,9 @@ const fetchResults = async () => {
     hasAnalysisResults.value=!!data.has_results
     analysisMessage.value=data.message||'等待清晰人脸画面'
     stabilityProgress.value=data.stability_progress||0
+    emailStatus.value=data.email_status||'idle'
+    emailMessage.value=data.email_message||''
+    emailUpdatedAt.value=data.email_updated_at||null
     
     // Reflect the backend phase, rather than showing identity lookup as face instability.
     statusText.value=analysisMessage.value
@@ -679,7 +727,141 @@ onUnmounted(() => {
   display: inline-block;
 }
 
-/* 幸福指数卡片 */
+.email-feedback {
+  --mail-accent: #2563eb;
+  --mail-border: #bfdbfe;
+  --mail-surface: #eff6ff;
+  --mail-ink: #1e3a8a;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 18px;
+  min-height: 122px;
+  box-sizing: border-box;
+  padding: 20px 24px;
+  margin: 0 0 20px;
+  overflow: hidden;
+  color: var(--mail-ink);
+  background:
+    radial-gradient(circle at 92% -20%, color-mix(in srgb, var(--mail-accent) 15%, transparent) 0 34%, transparent 35%),
+    linear-gradient(135deg, #ffffff 0%, var(--mail-surface) 100%);
+  border: 1px solid var(--mail-border);
+  border-left: 5px solid var(--mail-accent);
+  border-radius: 16px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+.email-feedback--sent {
+  --mail-accent: #07825b;
+  --mail-border: #b7e4cf;
+  --mail-surface: #ecfdf5;
+  --mail-ink: #065f46;
+}
+
+.email-feedback--failed {
+  --mail-accent: #d14343;
+  --mail-border: #fecdd3;
+  --mail-surface: #fff1f2;
+  --mail-ink: #9f1239;
+}
+
+.email-feedback--skipped {
+  --mail-accent: #c47b10;
+  --mail-border: #fde5b0;
+  --mail-surface: #fffbeb;
+  --mail-ink: #92400e;
+}
+
+.email-feedback__mark {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  color: var(--mail-accent);
+  font-size: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--mail-border);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.email-feedback__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.email-feedback__meta,
+.email-feedback__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.email-feedback__meta {
+  margin-bottom: 7px;
+}
+
+.email-feedback__eyebrow {
+  color: var(--mail-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.email-feedback__state {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  color: var(--mail-accent);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--mail-border);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.email-feedback--sending .email-feedback__state::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  background: currentColor;
+  border-radius: 50%;
+  animation: email-feedback-pulse 1.4s ease-in-out infinite;
+}
+
+.email-feedback__heading h3 {
+  margin: 0;
+  color: var(--mail-ink);
+  font-size: 1.08rem;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+.email-feedback__heading time {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--mail-ink) 62%, #ffffff);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.email-feedback__body p {
+  margin: 7px 0 0;
+  color: color-mix(in srgb, var(--mail-ink) 82%, #ffffff);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@keyframes email-feedback-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
 .wellbeing-card {
   background: rgba(245, 247, 250, 0.78);
   backdrop-filter: blur(10px);          
@@ -930,6 +1112,11 @@ onUnmounted(() => {
   height: calc(100vh - 120px);
 }
 
+.main-content--with-email {
+  height: calc(100vh - 250px);
+  min-height: 520px;
+}
+
 .video-section {
   flex: 1.2;
   min-width: 0;
@@ -1142,6 +1329,52 @@ onUnmounted(() => {
   margin: 0 0 10px 0;
   font-weight: 600;
   color: #2c3e50;
+}
+
+@media (max-width: 900px) {
+  .main-content,
+  .main-content--with-email {
+    height: auto;
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .video-wrapper {
+    min-height: 360px;
+  }
+
+  .params-section {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .email-feedback {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 18px;
+  }
+
+  .email-feedback__mark {
+    width: 42px;
+    height: 42px;
+    align-self: start;
+  }
+
+  .email-feedback__meta,
+  .email-feedback__heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .email-feedback--sending .email-feedback__state::before {
+    animation: none;
+  }
 }
 </style>
 <style scoped>

@@ -169,7 +169,10 @@ stable_state = {
         "current_video_path": None,
         "video_frame_count": 0,
         "recognizing": False,
-        "last_recognize_at": 0.0
+        "last_recognize_at": 0.0,
+        "email_status": "idle",
+        "email_message": "",
+        "email_updated_at": None
     },
     "rtsp": {
         "stable_count": 0, "prev_center": None, "prev_size": None,
@@ -185,7 +188,10 @@ stable_state = {
         "current_video_path": None,
         "video_frame_count": 0,
         "recognizing": False,
-        "last_recognize_at": 0.0
+        "last_recognize_at": 0.0,
+        "email_status": "idle",
+        "email_message": "",
+        "email_updated_at": None
     }
 }
 
@@ -274,7 +280,8 @@ def reset_analysis_state(source: str):
             "current_video_path": None,
             "video_frame_count": 0,
             "recognizing": False,
-            "last_recognize_at": 0.0, "result_samples":0,"sample_frames":0,"stability_progress":0.,"stage":"searching","last_error":None
+            "last_recognize_at": 0.0, "result_samples":0,"sample_frames":0,"stability_progress":0.,"stage":"searching","last_error":None,
+            "email_status":"idle","email_message":"","email_updated_at":None
         })
 
         if video_writers.get(source) is not None:
@@ -631,6 +638,9 @@ async def generate_video_stream(
 
                                         if person_id and person_name and person_name != "Unknown" and happiness_index < 60:
                                             print(f"[{source}] 幸福指数 {happiness_index:.1f} < 60，准备发送预警邮件")
+                                            state["email_status"] = "sending"
+                                            state["email_message"] = "正在发送预警邮件..."
+                                            state["email_updated_at"] = time.time()
 
                                             email_data = {
                                                 "matched_person": person_name,
@@ -640,25 +650,40 @@ async def generate_video_stream(
 
                                             async def protected_send_email():
                                                 try:
-                                                    await send_analysis_email(
+                                                    sent = await send_analysis_email(
                                                         source=source,
                                                         state=email_data,
                                                         results=latest_results[source],
                                                         video_path=final_video_path
                                                     )
+                                                    if sent:
+                                                        state["email_status"] = "sent"
+                                                        state["email_message"] = "预警邮件发送成功"
+                                                        state["email_updated_at"] = time.time()
+                                                    else:
+                                                        state["email_status"] = "failed"
+                                                        state["email_message"] = "邮件未发送，请检查邮件配置或后端日志"
+                                                        state["email_updated_at"] = time.time()
                                                 except Exception as e:
+                                                    state["email_status"] = "failed"
+                                                    state["email_message"] = "邮件发送异常，请检查后端日志"
+                                                    state["email_updated_at"] = time.time()
                                                     print(f"[{source}] 邮件发送异常: {e}")
                                                     traceback.print_exc()
 
                                             try:
-                                                email_coro = protected_send_email()
-                                                shielded = asyncio.shield(email_coro)
-                                                asyncio.create_task(shielded)
+                                                asyncio.create_task(protected_send_email())
                                             except Exception as task_e:
+                                                state["email_status"] = "failed"
+                                                state["email_message"] = "邮件任务创建失败，请检查后端日志"
+                                                state["email_updated_at"] = time.time()
                                                 print(f"[{source}] 创建邮件任务失败: {task_e}")
 
                                         else:
                                             reason = "未识别到具体人员" if not person_id or person_name == "Unknown" else f"幸福指数 >= 60"
+                                            state["email_status"] = "skipped"
+                                            state["email_message"] = f"未发送邮件：{reason}"
+                                            state["email_updated_at"] = time.time()
                                             print(f"[{source}] 跳过邮件发送：{reason}")
 
                 # 振动分析
@@ -735,7 +760,10 @@ async def get_analysis_results(source: str = Query(None), device_id: str = ''):
             "matched_person": state["matched_person"] or "Unknown",
             "person_id": state["person_id"] or "未知ID",
             "similarity": state["match_similarity"] or 0.0,
-            "video_path": state.get("current_video_path")
+            "video_path": state.get("current_video_path"),
+            "email_status": state.get("email_status", "idle"),
+            "email_message": state.get("email_message", ""),
+            "email_updated_at": state.get("email_updated_at")
         }
 
     return {
@@ -747,7 +775,10 @@ async def get_analysis_results(source: str = Query(None), device_id: str = ''):
         "matched_person": "未识别",
         "person_id": "未知ID",
         "similarity": 0.0,
-        "video_path": None
+        "video_path": None,
+        "email_status": "idle",
+        "email_message": "",
+        "email_updated_at": None
     }
 
 

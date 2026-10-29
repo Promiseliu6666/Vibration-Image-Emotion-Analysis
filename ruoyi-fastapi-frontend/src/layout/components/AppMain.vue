@@ -22,9 +22,12 @@ onMounted(() => {
   addIframe()
 })
 
-watch((route) => {
-  addIframe()
-})
+watch(
+  () => route.meta.link,
+  () => {
+    addIframe()
+  }
+)
 
 function addIframe() {
   if (route.meta.link) {
@@ -80,4 +83,3 @@ function addIframe() {
   border-radius: 3px;
 }
 </style>
-

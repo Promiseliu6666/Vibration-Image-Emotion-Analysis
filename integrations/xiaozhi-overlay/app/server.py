@@ -24,8 +24,6 @@ async def lifespan(app: FastAPI):
     from app.api import ws_handler
     from app.analysis.analyzer import run_analyzer
     from app.analysis import rest_reminder
-    await asyncio.to_thread(rest_reminder.recover_interrupted)
-
     # 创建分析结果输出队列，用于推送 learning_status 到设备
     ws_handler.output_queue = asyncio.Queue(maxsize=100)
     broadcast_task = asyncio.create_task(ws_handler._broadcast_results())
