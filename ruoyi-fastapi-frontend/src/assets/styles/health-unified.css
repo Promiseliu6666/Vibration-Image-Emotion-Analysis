@@ -1,0 +1,13 @@
+/* Health workspace shared by original analysis and embedded XiaoZhi. */
+:root{--health-accent:#286c9f;--health-ink:#213a53;--health-page:#f3f6fa;--health-line:#e0e7ef;--el-color-primary:#286c9f}
+#app .app-main{background:var(--health-page)!important}
+#app .vibra-monitor{padding:24px!important;background:var(--health-page)!important}
+#app .vibra-monitor .header{border-bottom:1px solid var(--health-line)!important;background:none!important;padding:0 0 20px!important;margin-bottom:20px!important;gap:20px}
+#app .vibra-monitor h2{font-size:24px!important;font-weight:600!important;margin:0!important;color:var(--health-ink)!important}
+#app .vibra-monitor .video-wrapper{border-radius:8px!important;box-shadow:none!important;background:#15202b!important}
+#app .vibra-monitor .person-card,#app .vibra-monitor .data-section,#app .vibra-monitor .data-panel{border-radius:8px!important;box-shadow:none!important;border:1px solid var(--health-line)!important;background:#fff!important}
+#app .vibra-monitor .person-card{background:#f7fafd!important}
+#app .vibra-monitor .controls{flex-wrap:wrap}
+.xiaozhi-source-bar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-bottom:20px;border:1px solid #dce6ef;background:#fff;border-radius:6px;font-size:12px;color:#687f93}.xiaozhi-source-bar a{color:#286c9f}.xiaozhi-source-bar>span:first-child{font-weight:600;color:#3d576c}
+.el-card{border:1px solid var(--health-line)!important;box-shadow:none!important;border-radius:8px!important}
+@media(max-width:900px){#app .vibra-monitor{padding:16px!important}.xiaozhi-source-bar{gap:10px}}

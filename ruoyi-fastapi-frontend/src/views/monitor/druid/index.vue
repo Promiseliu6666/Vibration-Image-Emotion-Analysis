@@ -2,16 +2,17 @@
   <div class="vibra-monitor">
     <!-- 标题与控制栏 -->
     <div class="header">
-      <h2>振动图像心理生理实时监测系统</h2>
+      <h2>视频监测</h2>
       <div class="controls">
         <div class="control-group">
           <label>摄像头：</label>
           <el-select v-model="cameraSource" size="small" style="width: 160px">
-            <el-option label="本地摄像头" value="local" />
+            <el-option label="小智摄像头" value="xiaozhi" />
+            <el-option label="本机摄像头" value="local" />
             <el-option label="海康RTSP摄像头" value="rtsp" />
           </el-select>
         </div>
-        <div class="control-group">
+<div class="control-group">
           <el-button
             type="warning"
             size="small"
@@ -25,15 +26,33 @@
       </div>
     </div>
 
+    <div v-if="cameraSource==='xiaozhi'" class="xiaozhi-source-bar">
+      <span>小智设备</span>
+      <el-checkbox v-model="parallelPreview">并行预览</el-checkbox>
+      <el-select v-model="xiaozhiDevice" placeholder="自动选择在线设备" clearable style="width:220px" @visible-change="open=>open&&loadXiaozhiDevices()">
+        <el-option v-for="device in xiaozhiDevices" :key="device.device_id" :value="device.device_id" :label="device.name+(device.online?' · 在线':' · 未出图')"/>
+      </el-select>
+      <span>{{ xiaozhiSourceError || '仅使用小智原始画面，不会切换为本机摄像头' }}</span>
+      <router-link to="/xiaozhi/devices">管理小智设备</router-link>
+    </div>
     <!-- 主内容区 -->
     <div class="main-content">
       <!-- 左侧：视频流 -->
       <div class="video-section">
-        <div class="video-wrapper">
+        <div v-if="cameraSource==='xiaozhi'&&parallelPreview" class="parallel-cameras">
+          <div v-for="device in xiaozhiDevices" :key="device.device_id" class="parallel-camera" :class="{selected:xiaozhiDevice===device.device_id}" @click="xiaozhiDevice=device.device_id">
+            <header><strong>{{ device.name }}</strong><span>{{ device.online?'在线':'未出图' }}</span></header>
+            <img v-if="device.online" :src="deviceStreamUrl(device.device_id)" :alt="device.name+'实时画面'" />
+            <div v-else class="camera-offline">此设备暂无画面，请检查 USB 连接并启动采集</div>
+            <footer>{{ xiaozhiDevice===device.device_id?'当前分析详情':'点击查看该设备分析详情' }}</footer>
+          </div>
+          <p v-if="!xiaozhiDevices.length">尚未连接小智设备</p>
+        </div>
+        <div v-else class="video-wrapper">
           <img
             ref="videoImg"
             :src="videoStreamUrl"
-            :key="cameraSource"
+            :key="cameraSource+xiaozhiDevice"
             alt="实时视频流"
             class="video-stream"
             @load="onVideoLoad"
@@ -48,14 +67,15 @@
             <div v-if="videoStatus === 'error' && showConnectionTip" class="error-tip">
               <div class="error-icon">⚠️</div>
               <div class="error-message">{{ connectionTipText }}</div>
-              <div class="error-hint">💡 请在上方切换其他摄像头源重试</div>
+              <div class="error-hint">💡 请检查当前摄像头连接，或在上方切换来源</div>
             </div>
             <div v-if="videoStatus === 'error' && !showConnectionTip" class="reconnect-tip">
               视频流中断，浏览器正在自动重连...
             </div>
-            <div v-if="videoStatus === 'online' && !isAnalyzing" class="waiting-tip">
-              等待检测到稳定人脸...<br />
-              请正对摄像头，保持头部静止几秒钟
+            <div v-if="videoStatus === 'online' && !isAnalyzing && !analysisCompleted" class="waiting-tip">
+              {{ analysisMessage }}<br />
+              <span v-if="stabilityProgress>0">稳定确认 {{ Math.round(stabilityProgress*100) }}%</span>
+              <span v-else>请让人脸清晰位于画面中</span>
             </div>
           </div>
         </div>
@@ -104,7 +124,7 @@
           </div>
 
           <!-- 幸福指数卡片 -->
-          <div v-if="!isShowE1E10 && isAnalyzing && wellbeingResults.happiness_index > 0">
+          <div v-if="!isShowE1E10 && hasAnalysisResults">
             <div class="wellbeing-card">
               <div class="wellbeing-header">
                 <h3>幸福指数综合评估</h3>
@@ -151,13 +171,13 @@
                 <li><strong>幸福指数</strong>：综合评估当前心理状态 (1-100分)</li>
                 <li><strong>幸福等级</strong>：≥80分"幸福达标"，≥60分"幸福待提升"，<60分"幸福预警"</li>
                 <li><strong>安全风险</strong>：≥70分"低风险"，≥40分"中风险"，<40分"高风险"</li>
-                <li><strong>检测规则</strong>：人脸稳定后持续分析10秒，结果自动保存</li>
+                <li><strong>检测规则</strong>：人脸稳定后积累有效画面；匹配人员后才关联档案保存</li>
               </ul>
             </div>
           </div>
 
           <!-- 无数据提示 -->
-          <div v-if="!isShowE1E10 && (!isAnalyzing || wellbeingResults.happiness_index <= 0)">
+          <div v-if="!isShowE1E10 && !hasAnalysisResults">
             <div class="panel-header">
               <h3>实时监测数据</h3>
               <el-tag :type="isAnalyzing ? 'success' : 'info'" size="small">
@@ -168,16 +188,16 @@
               <el-alert
                 title="当前无有效分析"
                 type="warning"
-                description="可能原因：视频源连接失败、未检测到人脸、头部未稳定。请检查摄像头并正对镜头保持静止。"
+                :description="analysisMessage"
                 :closable="false"
                 show-icon
               />
             </div>
-            <div v-if="isAnalyzing && wellbeingResults.happiness_index <= 0" class="no-analysis-tip">
+            <div v-if="isAnalyzing && !hasAnalysisResults" class="no-analysis-tip">
               <el-alert
                 title="分析中"
                 type="info"
-                description="正在采集数据计算幸福指数，请稍候（预计10秒）..."
+                :description="analysisMessage"
                 :closable="false"
                 show-icon
               />
@@ -238,12 +258,27 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import request from '@/utils/request'
 import { Refresh, User } from '@element-plus/icons-vue'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
 
 // ==================== 状态管理 ====================
-const cameraSource = ref('local')
+const cameraSource = ref('xiaozhi')
+const xiaozhiDevice=ref('')
+const parallelPreview=ref(false)
+const deviceStreamUrl=id=>`${baseURL}/video/feed/analysis?source=xiaozhi&device_id=${encodeURIComponent(id)}`
+let cameraStatusTimer=null
+const xiaozhiDevices=ref([])
+const xiaozhiSourceError=ref('')
+const sourceQuery=computed(()=>`source=${cameraSource.value}&device_id=${encodeURIComponent(xiaozhiDevice.value)}`)
+async function loadXiaozhiDevices(){
+ try{const d=await request({url:'/video/xiaozhi/devices',method:'get'});xiaozhiDevices.value=d.devices||[];if(!xiaozhiDevice.value&&xiaozhiDevices.value.some(x=>x.online))xiaozhiDevice.value=xiaozhiDevices.value.find(x=>x.online).device_id;xiaozhiSourceError.value=xiaozhiDevices.value.length?'':'尚未连接小智设备，请到设备管理接入'}
+ catch(e){xiaozhiSourceError.value='小智服务未连接，请检查设备管理'}
+}
+watch(xiaozhiDevice,()=>{clearResults();videoStatus.value='connecting';statusText.value='正在连接所选设备…';showConnectionTip.value=false;reconnectAttempts.value=0})
+onMounted(()=>{loadXiaozhiDevices();cameraStatusTimer=setInterval(()=>{if(cameraSource.value==='xiaozhi')loadXiaozhiDevices()},4000)})
+onBeforeUnmount(()=>clearInterval(cameraStatusTimer))
 const videoStatus = ref('connecting')
 const statusText = ref('连接中...')
 const showConnectionTip = ref(false)
@@ -253,6 +288,9 @@ const reconnectAttempts = ref(0)
 const MAX_RECONNECT_ATTEMPTS = 3
 const shouldPolling = ref(true)
 const isAnalyzing = ref(false)
+const hasAnalysisResults=ref(false)
+const analysisMessage=ref('等待清晰人脸画面')
+const stabilityProgress=ref(0)
 const analysisCompleted = ref(false) // 新增：分析完成状态
 let pollTimer = null
 
@@ -323,7 +361,7 @@ const numberFormat = (value) => {
 // ==================== 视频流URL ====================
 const videoStreamUrl = computed(() => {
   const timestamp = new Date().getTime()
-  return `${baseURL}/video/feed/analysis?source=${cameraSource.value}&t=${timestamp}`
+  return `${baseURL}/video/feed/analysis?${sourceQuery.value}&t=${timestamp}`
 })
 
 // ==================== 幸福指数计算（与后端同步）====================
@@ -398,7 +436,7 @@ const onVideoError = () => {
     stopPolling()
     clearResults()
     statusText.value = '摄像头不可用'
-    connectionTipText.value = cameraSource.value === 'rtsp'
+    connectionTipText.value = cameraSource.value === 'xiaozhi' ? '小智摄像头未返回画面，请在设备管理中启动采集并检查设备连接' : cameraSource.value === 'rtsp'
       ? '❌ 海康RTSP摄像头连接失败 (500)\n请检查设备电源、IP或RTSP地址'
       : '❌ 本地摄像头无法打开 (500)\n请确认设备未被其他程序占用'
   }
@@ -418,6 +456,9 @@ const clearResults = () => {
   
   personInfo.value = { id: '', name: '', similarity: 0, recognizeTime: '' }
   isAnalyzing.value = false
+  hasAnalysisResults.value=false
+  analysisMessage.value='等待清晰人脸画面'
+  stabilityProgress.value=0
   analysisCompleted.value = false // 重置分析完成状态
   isShowE1E10.value = false
 }
@@ -427,7 +468,7 @@ const fetchResults = async () => {
   if (!shouldPolling.value) return
 
   try {
-    const res = await fetch(`${baseURL}/video/results?source=${cameraSource.value}`)
+    const res = await fetch(`${baseURL}/video/results?${sourceQuery.value}`)
     const data = await res.json()
 
     console.log("后端返回数据：", data)
@@ -435,18 +476,13 @@ const fetchResults = async () => {
     // 更新分析状态
     isAnalyzing.value = data.analyzing || false
     analysisCompleted.value = data.completed || false
+    hasAnalysisResults.value=!!data.has_results
+    analysisMessage.value=data.message||'等待清晰人脸画面'
+    stabilityProgress.value=data.stability_progress||0
     
-    // 更新视频状态文本
-    if (isAnalyzing.value) {
-      videoStatus.value = 'online'
-      if (analysisCompleted.value) {
-        statusText.value = '分析完成（结果已固定）'
-      } else {
-        statusText.value = '分析中（预计10秒）'
-      }
-    } else {
-      statusText.value = data.message || '等待人脸稳定...'
-    }
+    // Reflect the backend phase, rather than showing identity lookup as face instability.
+    statusText.value=analysisMessage.value
+    if(data.analyzing||data.has_results)videoStatus.value='online'
 
     // 更新参数
     if (data.results) {
@@ -462,8 +498,8 @@ const fetchResults = async () => {
 
     // 更新人员信息（适配新版接口）
     personInfo.value = {
-      id: data.person_id || '',
-      name: data.matched_person || '',
+      id: data.identified ? data.person_id || '' : '',
+      name: data.identified ? data.matched_person || '' : '未匹配人员',
       similarity: data.similarity || 0,
       recognizeTime: personInfo.value.recognizeTime || new Date().toLocaleString()
     }
@@ -507,7 +543,7 @@ const handleVisibilityChange = () => {
 const resetParams = async () => {
   resetLoading.value = true
   try {
-    const res = await fetch(`${baseURL}/video/reset?source=${cameraSource.value}`)
+    const res = await fetch(`${baseURL}/video/reset?${sourceQuery.value}`)
     if (res.ok) {
       const data = await res.json()
       clearResults()
@@ -565,7 +601,7 @@ onBeforeUnmount(() => {
   stopPolling()
   shouldPolling.value = false
   if (videoImg.value) videoImg.value.src = ''
-  fetch(`${baseURL}/video/reset?source=${cameraSource.value}`).catch(() => {})
+  fetch(`${baseURL}/video/reset?${sourceQuery.value}`).catch(() => {})
 })
 
 onUnmounted(() => {
@@ -1107,4 +1143,7 @@ onUnmounted(() => {
   font-weight: 600;
   color: #2c3e50;
 }
+</style>
+<style scoped>
+.parallel-cameras{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}.parallel-camera{border:2px solid #dce5f0;border-radius:8px;overflow:hidden;background:#14202c;cursor:pointer}.parallel-camera.selected{border-color:#409eff}.parallel-camera header{display:flex;justify-content:space-between;gap:10px;padding:12px;background:#fff;font-size:13px;color:#334d68}.parallel-camera header span{font-size:12px;color:#74899a}.parallel-camera img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain}.camera-offline{aspect-ratio:4/3;display:grid;place-items:center;text-align:center;padding:20px;color:#b7c8d7;font-size:13px;line-height:1.8}.parallel-camera footer{padding:10px;background:#f2f7fc;color:#44718f;font-size:12px}@media(max-width:1000px){.parallel-cameras{grid-template-columns:1fr}}
 </style>

@@ -143,24 +143,23 @@ cython_debug/
 # VSCode
 .vscode/
 nohup.out
-
-# Local environment and secrets
-/ruoyi-fastapi-backend/.env.*
-!/ruoyi-fastapi-backend/.env.example
-
-# Runtime-generated analysis videos
-/ruoyi-fastapi-backend/videos/*
-!/ruoyi-fastapi-backend/videos/.gitkeep
-
-# Runtime caches and logs
-/ruoyi-fastapi-backend/logs/
-/ruoyi-fastapi-backend/caches/
-/ruoyi-fastapi-backend/vf_admin/
-/ruoyi-fastapi-backend/nodejs/
-/ruoyi-fastapi-frontend/nodejs/
-
-# IDE run configurations
-/.run/
-
 *.zip
 *.mjs
+
+# Local health-monitoring runtime and private data
+**/.runtime/
+**/.run/
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/logs/
+**/frames/
+**/videos/
+**/dist/
+.env
+.env.dev
+.env.prod
+*.bak
+*.db
+*.sqlite
+*.sqlite3

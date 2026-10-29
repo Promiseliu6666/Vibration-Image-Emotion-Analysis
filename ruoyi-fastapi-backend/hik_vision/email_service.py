@@ -31,6 +31,8 @@ async def send_analysis_email(
         recipient: Optional[str] = None
 ) -> bool:
     """仅在幸福指数 < 60 且识别到具体人员时发送邮件"""
+    if os.getenv("MAIL_ENABLED", "true").lower() != "true":
+        return False
     try:
         recipient_email = recipient or os.getenv("RECIPIENT_EMAIL")
         if not recipient_email:

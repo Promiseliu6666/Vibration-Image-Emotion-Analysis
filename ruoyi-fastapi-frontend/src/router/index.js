@@ -26,6 +26,7 @@ import Layout from '@/layout'
 
 // 公共路由
 export const constantRoutes = [
+  {path:'/camera/live',redirect:'/monitor/druid',hidden:true},
   {
     path: '/redirect',
     component: Layout,
@@ -124,6 +125,14 @@ export const constantRoutes = [
       }
     ]
   },
+
+  {path:'/xiaozhi',component:Layout,redirect:'/xiaozhi/live',alwaysShow:true,meta:{title:'小智监测',icon:'monitor'},children:[
+    {path:'live',component:()=>import('@/views/xiaozhi/index'),name:'XiaozhiLive',meta:{title:'实时监测',icon:'monitor',xiaozhiView:'live',noCache:true}},
+    {path:'history',component:()=>import('@/views/xiaozhi/index'),name:'XiaozhiHistory',meta:{title:'健康记录',icon:'documentation',xiaozhiView:'history',noCache:true}},
+    {path:'analytics',component:()=>import('@/views/xiaozhi/index'),name:'XiaozhiAnalytics',meta:{title:'数据分析',icon:'chart',xiaozhiView:'analytics',noCache:true}},
+    {path:'devices',component:()=>import('@/views/xiaozhi/index'),name:'XiaozhiDevices',meta:{title:'设备管理',icon:'tool',xiaozhiView:'settings',noCache:true}}
+  ]},
+
 
 ]
 

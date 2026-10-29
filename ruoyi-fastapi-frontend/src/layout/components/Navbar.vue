@@ -97,6 +97,7 @@ function logout() {
     cancelButtonText: '取消',
     type: 'warning'
   }).then(() => {
+    if(window.parent!==window){window.parent.postMessage({type:'health-logout'},'http://127.0.0.1:8800');window.parent.postMessage({type:'health-logout'},'http://localhost:8800');return}
     userStore.logOut().then(() => {
       location.href = '/index';
     })

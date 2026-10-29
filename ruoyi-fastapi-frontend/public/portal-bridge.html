@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>连接工作空间</title></head><body><p>正在连接工作空间…</p><script>
+const allowed=new Set(['http://127.0.0.1:8800','http://localhost:8800']);
+const portalOrigin=(()=>{try{const p=new URLSearchParams(location.search).get('portal');return allowed.has(p)?p:null}catch{return null}})();
+if(window.parent!==window&&portalOrigin){
+ window.addEventListener('message',e=>{
+  if(e.source!==parent||e.origin!==portalOrigin)return;
+  if(e.data?.type==='employee-bridge-clear'){
+   localStorage.removeItem('token');document.cookie='Admin-Token=; path=/; Max-Age=0; SameSite=Lax';parent.postMessage({type:'employee-bridge-cleared'},portalOrigin);return;
+  }
+  if(e.data?.type!=='employee-bridge-auth'||typeof e.data.token!=='string'||!e.data.token||e.data.token.length>8192)return;
+  const xiaozhi=location.port==='8000';
+  if(xiaozhi)localStorage.setItem('token',e.data.token);
+  else document.cookie='Admin-Token='+encodeURIComponent(e.data.token)+'; path=/; SameSite=Lax';
+  parent.postMessage({type:'employee-bridge-complete'},portalOrigin);
+  location.replace(xiaozhi?'/static/dashboard.html':'/index');
+ });
+ parent.postMessage({type:'employee-bridge-ready'},portalOrigin);
+}else document.querySelector('p').textContent='请从员工健康监测平台进入此项目。';
+</script></body></html>
+
