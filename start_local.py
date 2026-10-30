@@ -1,7 +1,7 @@
 from pathlib import Path
-import os,socket,subprocess,time,shutil
+import os,socket,subprocess,time,shutil,json
 root=Path(__file__).resolve().parent
-b=root/'ruoyi-fastapi-backend';f=root/'ruoyi-fastapi-frontend'
+b=root/'ruoyi-fastapi-backend';f=root/'ruoyi-fastapi-frontend';x=root/'xiaozhi-study'
 logs=root/'.runtime/logs';logs.mkdir(parents=True,exist_ok=True)
 dotnet=root/'.runtime/dotnet'
 if dotnet.exists():os.environ['DOTNET_ROOT']=str(dotnet)
@@ -47,7 +47,28 @@ for name,port in [('MySQL',db_port),('Redis',cache_port)]:
   time.sleep(1)
  if not listening(port):raise ConnectionError(f'{name} is not listening on 127.0.0.1:{port}')
 
+# The complete Xiaozhi backend remains a separate service on port 8000. The
+# RuoYi backend proxies to it for SSO, device discovery and camera frames.
+xconfig=x/'.runtime/runtime.json'
+xpython=x/'.venv/Scripts/python.exe'
+xmysql=x/'.runtime/mysql/bin/mysqld.exe'
+if not xconfig.exists() or not xpython.exists() or not xmysql.exists():
+ raise FileNotFoundError(f'Xiaozhi runtime is incomplete: {x}')
+xcfg=json.loads(xconfig.read_text(encoding='utf-8-sig'))
+xdb_port=int(xcfg['mysql_port'])
+launch('xiaozhi-mysql',[xmysql,'--no-defaults','--basedir=.','--datadir=../mysql-data','--bind-address=127.0.0.1',f'--port={xdb_port}','--mysqlx=0','--console'],x/'.runtime/mysql',xdb_port)
+for _ in range(30):
+ if listening(xdb_port):break
+ time.sleep(1)
+if not listening(xdb_port):raise ConnectionError(f'Xiaozhi MySQL is not listening on 127.0.0.1:{xdb_port}')
+
 launch('backend',[b/'.venv/Scripts/python.exe','app.py','--env=dev'],b,9099)
+launch('xiaozhi',[xpython,'-u','main.py'],x,8000)
+for _ in range(60):
+ if listening(9099) and listening(8000):break
+ time.sleep(1)
+if not listening(9099):print('Warning: main backend is still starting on port 9099')
+if not listening(8000):print('Warning: Xiaozhi backend is still starting on port 8000')
 node_path=shutil.which('node')
 if not node_path:raise FileNotFoundError('Node.js was not found on PATH.')
 node=Path(node_path)

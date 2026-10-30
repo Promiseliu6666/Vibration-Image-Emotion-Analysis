@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict');
+const m=require('../static/analysis-metrics.js');
+const rows=[{start_time:'2026-10-07T15:59:59Z'},{start_time:'2026-10-07T16:00:00Z'},{start_time:'2026-10-13T16:00:00Z'},{start_time:'2026-10-14T16:00:00Z'},{start_time:'invalid'}];
+const now=new Date('2026-10-14T15:59:59Z');
+assert.deepEqual(m.inRange(rows,'today',now),[rows[2]]);
+assert.deepEqual(m.inRange(rows,'week',now),[rows[1],rows[2]]);
+assert.equal(m.dateKey('2026-10-13T16:00:00Z'),'2026-10-14');
+assert.equal(m.dateKey('invalid'),'');
+assert.equal(m.compareDays([]),null);
+const comparison=m.compareDays([{samples:100,engaged:20,phone:30,unknown:40},{samples:200,engaged:100,phone:10,unknown:20}]);
+assert.equal(comparison.metrics[0].change,30);
+assert.equal(comparison.metrics[1].change,-25);
+assert.ok(Math.abs(comparison.metrics[2].change-30)<1e-9);
+assert.equal(m.compareDays([{samples:0},{samples:10}]).metrics[0].change,null);
+console.log('PASS Shanghai midnight, seven-day boundary, future/invalid exclusion, weighted comparison and missing data');

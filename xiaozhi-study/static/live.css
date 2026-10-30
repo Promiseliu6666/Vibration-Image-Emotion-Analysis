@@ -1,0 +1,67 @@
+/* ===================================================================
+   实时监测模块（#live）专属样式
+
+   归属：这里只放"实时监测"页自己的东西——右栏两张卡（时段监测、此刻四项指标），
+   以及贴着活动分类的核对入口。
+     · 健康数据呈现（记录分栏、维度分布、分析面板、月度报告）→ health.css
+     · 设置页样式 → settings.css
+     · 全局骨架与工作台 → console.css
+
+   加载顺序：console.css → workspace-scene.css → help.css → health.css
+             → live.css → settings.css → workspace-refinements.css → top-navigation.css
+   本文件排在 console.css / workspace-scene.css 之后，负责这些组件的收尾覆盖。
+   =================================================================== */
+
+/* ---------- ① 此刻：一个分类 + 四项指标（右栏放不下 4 列，排成 2×2） ---------- */
+.now-head{align-items:flex-start}
+.health-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:16px 0 14px}
+.health-cell{display:grid;gap:2px;padding:10px 12px;border-radius:12px;background:#f6f9f0;border:1px solid #e3ead8;min-width:0}
+.health-cell[data-tone=warn]{background:#fff6e9;border-color:#eccb96}
+.health-label{font-size:11px;font-weight:600;letter-spacing:.6px;color:#4b6b52}
+.health-cell[data-tone=warn] .health-label{color:#a86a1c}
+.health-value{margin:0;font-family:"Georgia","Microsoft YaHei UI",sans-serif;font-size:18px;font-weight:600;line-height:1.35;color:#33402f;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.health-cell[data-tone=warn] .health-value{color:#8a5a22}
+.health-note{margin:0;font-size:11px;line-height:1.55;color:#6d756e;overflow-wrap:anywhere}
+.health-cell[data-tone=warn] .health-note{color:#8a6a3c}
+@media(max-width:1150px){.health-grid{gap:7px}.health-value{font-size:17px}}
+@media(max-width:680px){
+ .health-cell{padding:10px 12px}
+ .health-value{font-size:18px}
+}
+
+/* ---------- ② 识别核对入口：贴在"画面中的状态"分类旁边 ---------- */
+.now-activity{align-items:center;gap:10px;flex-wrap:nowrap}
+.now-activity-main{flex:1 1 auto;min-width:0}
+.study-atelier .now-activity #activity{margin:0}
+.now-activity #recognitionEvidence{font-size:11px;line-height:1.6;margin:2px 0 0;color:#8b948c}
+.study-atelier .now-card .now-activity #activity{font-size:18px;line-height:1.5;font-weight:500;overflow-wrap:anywhere}
+.study-atelier .now-card .now-activity #reviewRecognition{margin-left:auto;white-space:nowrap}
+.study-atelier .now-activity #reviewRecognition{flex:0 0 auto;width:auto;min-height:34px;padding:6px 11px;font-size:12px;border:1px solid #ccd6c4;border-radius:8px;background:#fffef9;color:#405842}
+.study-atelier .now-activity #reviewRecognition:hover:not(:disabled){background:#edf2e6}
+
+/* ---------- ③ 时段监测：一张卡两个状态，到点整块更替 ---------- */
+/* 卡片本身裁切了溢出内容，标题旁的问号浮层要留出来 */
+#healthWindowCard{overflow:visible}
+#healthWindowCard #healthWindowStart{width:100%;min-height:42px;background:#6b593e;border-color:#6b593e;color:#fff;border-radius:10px;font-size:14px}
+#healthWindowCard #healthWindowStart:hover:not(:disabled){background:#55452f;border-color:#55452f}
+#healthWindowCard #healthWindowStop{background:transparent;border:0;color:#77664b;font-size:12px;min-height:28px;padding:4px 6px}
+#healthWindowCard #healthWindowStop:hover:not(:disabled){background:#f0e2c9}
+#healthWindowCard #healthWindowClock{font-variant-numeric:tabular-nums}
+.monitor-rail .rest-card .timer-clock{font-size:44px;margin:8px 0 12px}
+/* 到点提醒出现时，计时区整块让位给提醒内容（状态由脚本写在 data-state 上） */
+.monitor-rail .rest-card[data-state=rest] .rest-timer{display:none}
+.monitor-rail .rest-card:has(#healthPrompt:not([hidden])) .rest-timer{display:none}
+.monitor-rail .rest-card #healthPrompt{background:#fffdf5;border:1px solid #e2cfae;border-radius:14px;padding:16px 18px;margin:4px 0 0}
+.monitor-rail .rest-card #healthPrompt strong{display:block;font-size:14px;color:#5e4c31}
+.monitor-rail .rest-card #healthPrompt p{font-size:12px;line-height:1.8;color:#7b6a43;margin:8px 0 12px}
+.monitor-rail .rest-card #healthPrompt .row{gap:8px}
+/* 只有出错时 #healthFeedback 才有字，平时不占位 */
+.monitor-rail .rest-card #healthFeedback{margin:10px 0 0;font-size:12px;line-height:1.7;color:#8a5a22}
+.monitor-rail .rest-card #healthFeedback:empty{display:none}
+.monitor-rail .rest-card details{margin-top:14px;padding:12px 14px;background:#faf0dc}
+.monitor-rail .rest-card form{display:flex;flex-direction:column;gap:9px;margin-top:12px}
+.monitor-rail .rest-card form label{display:flex;align-items:center;gap:8px;font-size:12px}
+.monitor-rail .rest-card form input[type=checkbox]{width:auto}
+.monitor-rail .rest-card form input[type=number]{width:76px;min-height:34px;margin-left:4px}
+.monitor-rail .rest-card form button{align-self:flex-start;min-height:34px;font-size:12px}
+.monitor-rail .rest-card .health-scope{font-size:11px;line-height:1.7;margin:12px 0 0}

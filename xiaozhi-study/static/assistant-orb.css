@@ -1,0 +1,61 @@
+/* Shared, modeless assistant: a small companion rather than another workspace. */
+.xiaozhi-assistant{position:fixed;right:28px;bottom:24px;z-index:90;color:#304c3e;font-family:"Microsoft YaHei",sans-serif;font-size:14px;line-height:1.65}
+.xiaozhi-assistant [hidden]{display:none!important}
+.xiaozhi-assistant button,.xiaozhi-assistant textarea{font:inherit}
+.xiaozhi-assistant button{cursor:pointer}
+.xiaozhi-assistant button:focus-visible,.xiaozhi-assistant textarea:focus-visible{outline:3px solid #9aaa77;outline-offset:4px}
+.xiaozhi-assistant .assistant-launcher{display:flex;align-items:center;gap:12px;border:0;background:transparent;padding:0;color:#355f4e;box-shadow:none}
+.assistant-launcher-label{padding:7px 13px;border-radius:22px;background:#fffef9;border:1px solid #dce4d3;box-shadow:0 3px 16px #344e3c10;font-size:13px}
+.assistant-sphere{position:relative;display:grid;place-items:center;width:66px;height:66px;flex-shrink:0;border-radius:50%;background:radial-gradient(circle at 30% 23%,#fffce9 0%,#f1e5be 27%,#bcc8a0 65%,#6f8c72 100%);border:1px solid #ebeed8;box-shadow:inset 1px 2px 4px #ffffffd9,inset -3px -5px 10px #48654e30,0 8px 22px #355f4e24;transition:transform .2s ease,box-shadow .2s ease}
+.assistant-launcher:hover .assistant-sphere{transform:translateY(-3px);box-shadow:inset 1px 2px 4px #ffffffd9,0 12px 25px #355f4e30}
+.assistant-face{width:35px;height:35px;fill:none;stroke:#3d604d;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.assistant-sphere::after{content:'AI';position:absolute;right:-2px;bottom:0;border:2px solid #fffef9;border-radius:12px;padding:0 6px;background:#355f4e;color:white;font-size:9px;font-weight:600;line-height:17px}
+.assistant-panel{position:absolute;right:0;bottom:86px;width:420px;height:610px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 134px);display:flex;flex-direction:column;overflow:hidden;border:1px solid #d3dfc9;border-radius:25px;background:#fffef9;box-shadow:0 20px 70px #253d3026,0 3px 12px #253d3012;animation:assistant-open .18s ease-out;transform-origin:bottom right}
+.assistant-panel-header{display:flex;align-items:center;gap:12px;padding:20px 22px 16px;background:#f0f3e8;border-bottom:1px solid #e2e7d9}
+.assistant-panel-header .assistant-face{width:30px;height:30px}
+.assistant-heading{flex:1;min-width:0}
+.assistant-heading h2{margin:0;font:600 20px/1.4 "Microsoft YaHei",sans-serif;color:#355f4e}
+.assistant-heading p{margin:3px 0 0;font-size:12px;color:#67745e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.xiaozhi-assistant .assistant-close{width:32px;height:32px;border:0;background:transparent;color:#5c6f59;border-radius:50%;padding:0;font-size:23px;line-height:1}
+.assistant-close:hover{background:#e3ead8}
+.assistant-messages{flex:1;overflow:auto;overscroll-behavior:contain;padding:22px;scrollbar-width:thin;scrollbar-color:#ccd7bf transparent}
+.assistant-welcome h3{font:400 27px/1.5 "Noto Serif SC","SimSun",serif;margin:0 0 10px;color:#355f4e}
+.assistant-welcome p{margin:0 0 18px;color:#72806b;font-size:13px}
+.assistant-prompts{display:grid;gap:9px}
+.xiaozhi-assistant .assistant-prompts button{border:1px solid #e0e6d6;background:#f8faf3;border-radius:12px;text-align:left;padding:11px 14px;color:#465e43;display:flex;justify-content:space-between;gap:8px}
+.assistant-prompts button::after{content:'↗';color:#92a480}
+.assistant-prompts button:hover{background:#edf2e3;border-color:#b9caad}
+.assistant-message{margin:0 0 18px;max-width:100%;overflow-wrap:anywhere}
+.assistant-message-label{display:block;font-size:11px;color:#849079;margin:0 0 5px}
+.assistant-message p{white-space:pre-wrap;margin:0;line-height:1.85}
+.assistant-message.user{margin-left:36px;padding:11px 14px;border-radius:16px 16px 4px 16px;background:#eaf0df}
+.assistant-message.user .assistant-message-label{color:#64745c}
+.assistant-message.assistant{margin-right:10px;padding:0 0 6px}
+.assistant-pending{color:#758568;font-size:13px;padding:6px 0}
+.assistant-compose{padding:13px 18px 16px;border-top:1px solid #e3e8da;background:#fffef9}
+.assistant-compose label{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%)}
+.xiaozhi-assistant .assistant-compose textarea{display:block;width:100%;min-height:68px;max-height:110px;resize:vertical;box-sizing:border-box;background:#f7f9f2;color:#304c3e;border:1px solid #dfe6d6;border-radius:13px;padding:11px 12px;line-height:1.6;margin:0}
+.assistant-compose-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
+.xiaozhi-assistant .assistant-clear{border:0;background:transparent;color:#74806c;padding:5px 0;font-size:12px;border-radius:4px}
+.assistant-clear:disabled{opacity:.5;cursor:default}
+.xiaozhi-assistant .assistant-send{border:1px solid #355f4e;background:#355f4e;color:white;border-radius:11px;padding:7px 19px;min-width:78px}
+.assistant-send:disabled{opacity:.5;cursor:default}
+.assistant-input-hint{font-size:11px;color:#7d8974;margin:7px 0 0}
+.assistant-error{color:#a35928;margin:0 0 8px;font-size:12px}
+.assistant-status{font-size:12px;color:#72806b;margin:0 0 8px}
+@keyframes assistant-open{from{opacity:0;transform:translateY(9px) scale(.97)}to{opacity:1;transform:none}}
+@media(max-width:600px){.xiaozhi-assistant{right:16px;bottom:16px}.assistant-panel{bottom:78px}.assistant-sphere{width:58px;height:58px}.assistant-launcher-label{display:none}}
+@media(prefers-reduced-motion:reduce){.assistant-panel{animation:none}.assistant-sphere{transition:none}}
+@media print{.xiaozhi-assistant{display:none}}
+
+/* Keep the assistant in the workspace header, away from page actions. */
+.xiaozhi-assistant{top:18px;bottom:auto}
+.xiaozhi-assistant .assistant-panel{position:fixed;top:100px;right:28px;bottom:auto;max-height:calc(100dvh - 120px);transform-origin:top right}
+.study-atelier>aside.has-top-assistant{grid-template-columns:190px minmax(0,1fr) auto 150px}
+.study-atelier>aside>.assistant-in-topbar{position:relative;inset:auto;align-self:center;z-index:90}
+.assistant-in-topbar .assistant-launcher{gap:8px}
+.assistant-in-topbar .assistant-launcher-label{background:transparent;border:0;box-shadow:none;padding:0;font-size:13px}
+.assistant-in-topbar .assistant-sphere{width:46px;height:46px}
+.assistant-in-topbar .assistant-face{width:28px;height:28px}
+@media(max-width:1150px){.study-atelier>aside.has-top-assistant{grid-template-columns:160px minmax(0,1fr) auto 115px;gap:10px}.assistant-in-topbar .assistant-launcher-label{display:none}}
+@media(max-width:900px){.study-atelier>aside.has-top-assistant{grid-template-columns:1fr auto auto}.study-atelier>aside.has-top-assistant>nav{grid-column:1/-1;grid-row:2}.xiaozhi-assistant .assistant-panel{top:150px;right:16px;max-height:calc(100dvh - 168px)}}

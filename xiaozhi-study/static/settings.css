@@ -1,0 +1,101 @@
+/* ===================================================================
+   设置模块（#settings）专属样式
+
+   归属：这里只放设置页自己的东西——每张卡的折叠标题行，以及"语音提醒 / 测试小智语音"折叠块。
+   语音测试的标记暂时写在 dashboard.html 的实时监测卡里（设置页那段 HTML 在文件里是一整行），
+   加载后由 workspace.js 搬进设置页的"运行与网络"卡；折叠行为同样在 workspace.js。
+
+   加载顺序：console.css → workspace-scene.css → help.css → health.css
+             → live.css → settings.css → workspace-refinements.css → top-navigation.css
+   =================================================================== */
+
+/* 跟设置页其它折叠块同一底纹，不再是实时页那种无底色样式 */
+.study-atelier #settings .voice-tools{background:#f0f4eb!important;padding:15px 18px!important;border-radius:8px}
+.study-atelier #settings .voice-tools button{width:auto;min-height:38px;padding:8px 14px}
+.legacy-voice-test{display:none!important}
+
+/* ---------- 提醒设置：当前设备生效，不做管理员专属 ---------- */
+#settings .reminder-settings-form{display:grid;gap:16px;margin-top:12px}
+#settings .reminder-master{display:flex;align-items:flex-start;gap:12px;padding:16px 18px;background:#eef4e7;border:1px solid #d7e2cd;border-radius:12px;cursor:pointer}
+#settings .reminder-master input{width:19px;height:19px;margin-top:2px;accent-color:#4f7041}
+#settings .reminder-master span,#settings .reminder-toggle span{display:grid;gap:3px}
+#settings .reminder-master strong,#settings .reminder-toggle strong{font-size:14px;color:#33402f}
+#settings .reminder-master small,#settings .reminder-toggle small{font-size:12px;line-height:1.6;color:#74806d;font-weight:400}
+#settings .reminder-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#settings .reminder-option{position:relative;display:grid;grid-template-rows:1fr auto;gap:12px;min-height:132px;padding:14px 15px;background:#fafbf7;border:1px solid #e1e7d8;border-radius:10px}
+#settings .reminder-option:hover{border-color:#c9d7bd;background:#f7f9f2}
+#settings .reminder-toggle{display:flex;align-items:flex-start;gap:11px;padding-right:58px;cursor:pointer}
+#settings .reminder-toggle input{flex:0 0 auto;width:18px;height:18px;margin-top:2px;accent-color:#5f7c4f}
+#settings .reminder-durations{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding-top:10px;border-top:1px solid #e8ece1}
+#settings .reminder-durations label{display:flex;align-items:center;gap:5px;font-size:11px;color:#68745f;white-space:nowrap}
+#settings .reminder-durations input{width:60px;min-width:0;min-height:32px;padding:4px;text-align:center}
+#settings .reminder-test{position:absolute;right:12px;top:11px;min-height:31px;padding:4px 10px;font-size:12px;background:#f0f5e9;border-color:#cbd9c0;color:#42583a}
+#settings .reminder-test:hover{background:#e4eddb}
+#settings .reminder-test:disabled{opacity:.45;cursor:not-allowed}
+#settings .reminder-option:has(input:disabled){opacity:.48}
+#settings .reminder-option:has(input:disabled) .reminder-toggle{cursor:not-allowed}
+#settings #reminderSettingsFeedback:empty{display:none}
+#settings #reminderSettingsFeedback{color:#5f6d59;line-height:1.7}
+#settings .reminder-settings-actions{justify-content:flex-start;gap:12px;align-items:center}
+#settings .reminder-settings-actions button{width:auto}
+@media(max-width:760px){#settings .reminder-settings-grid{grid-template-columns:1fr}}
+
+/* ---------- 折叠：每张设置卡只露一行标题，点标题才展开 ---------- */
+#settings article.settings-section{padding:0}
+/* 标题行左对齐：箭头与标题紧挨着，按钮用 margin-left:auto 推到最右；行高统一 64px */
+#settings .settings-head{display:flex;align-items:center;justify-content:flex-start;gap:10px;min-height:64px;padding:0 24px;cursor:pointer;user-select:none}
+#settings .settings-head>button{margin-left:auto}
+#settings .settings-head::before{content:'▸';flex:0 0 14px;width:14px;text-align:center;font-size:12px;line-height:1;color:#8b948c}
+#settings article.settings-section:not(.collapsed) .settings-head::before{content:'▾'}
+#settings .settings-head:hover{background:#f6f9f0}
+#settings .settings-head:focus-visible{outline:3px solid #6b8758;outline-offset:-3px}
+#settings article.collapsed .settings-head{border-radius:17px}
+#settings article.settings-section:not(.collapsed) .settings-head{border-radius:17px 17px 0 0}
+#settings .settings-body{padding:2px 24px 20px}
+#settings article.collapsed .settings-body{display:none}
+
+/* ---------- 诊断信息：默认折叠在"运行与网络"卡里 ---------- */
+#settings .settings-diagnostics{margin:0 0 14px;padding:12px 14px;background:#f5f7ee;border:1px solid #e3e9d8;border-radius:10px}
+#settings .settings-diagnostics summary{cursor:pointer;font-size:12px;color:#6d756e}
+#settings .settings-diagnostics[open] summary{margin-bottom:8px}
+#settings .settings-diagnostics #systemState,
+#settings .settings-diagnostics #lanState,
+#settings .settings-diagnostics .device-id{margin:6px 0 0;font-size:12px;line-height:1.7}
+#settings .settings-diagnostics .device-id{font-size:11px}
+
+/* ---------- 设置页小节（账号管理 / 数据管理里的分块） ---------- */
+#settings .settings-sub{margin:20px 0 10px;font-family:"STSong","SimSun",serif;font-weight:400;font-size:20px;color:#3f4a3c}
+#settings .settings-body>.settings-sub:first-child{margin-top:4px}
+#settings .settings-block{margin-top:22px;padding-top:18px;border-top:1px solid #e6ebe0}
+#settings .settings-block .settings-sub{margin-top:0}
+/* 卡片内容区的动作按钮（添加设备 / Wi-Fi 接入），展开后才出现 */
+#settings .settings-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 14px}
+
+/* 数据管理：纠正记录与照片统计 */
+#settings #wifiSetupFeedback:empty,#settings #framesFeedback:empty{display:none}
+#settings #cleanupFrames{width:auto;min-height:38px}
+/* 照片过期管理：左边选范围与策略，右边实时试算"会留多少 / 会删多少" */
+#settings .frames-manage{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:22px;align-items:start}
+#settings .frames-controls{display:block;margin:0}
+#settings .frames-label{display:block;font-size:12px;color:#6d756e;margin-bottom:8px}
+#settings .range-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+#settings .range-chips button{min-height:32px;padding:5px 12px;font-size:12px}
+#settings .range-chips button[aria-pressed=true]{background:#e5eddb;color:#3e5434;border-color:#b0c79b}
+#settings .frames-custom{display:flex;align-items:center;gap:8px;font-size:12px;color:#6d756e;margin-bottom:14px}
+#settings .frames-custom input{width:92px;min-height:36px}
+#settings .frames-controls .check-label{margin-bottom:16px;font-size:12px}
+#settings .frames-controls .row{justify-content:flex-start;gap:10px}
+#settings .frames-preview{padding:14px 16px;background:#f5f7ee;border:1px solid #e3e9d8;border-radius:10px}
+#settings .frames-preview>small{display:block;font-size:11px;color:#8b948c;margin-bottom:8px}
+#settings #framesStats{margin:0;white-space:pre-line;line-height:1.9;font-size:12px}
+#settings .frames-warning{margin:10px 0 0;font-size:11px;line-height:1.7;color:#8a5a22}
+@media(max-width:900px){#settings .frames-manage{grid-template-columns:1fr;gap:16px}}
+/* 设备清单：删掉筛选行后，留出与标题行的间距 */
+#settings .settings-body #deviceList{margin-top:18px}
+#settings .feedback-row{padding:14px 0}
+#settings .feedback-row .row{align-items:baseline;gap:10px}
+#settings .feedback-row strong{font-size:14px}
+#settings .feedback-row small{display:block;margin-top:6px;line-height:1.7}
+#settings .feedback-shot{margin-top:10px}
+#settings .feedback-shot button{width:auto;min-height:34px;font-size:12px}
+#settings .feedback-shot-image{display:block;margin-top:10px;max-width:100%;max-height:340px;border:1px solid #e2e7d9;border-radius:10px}

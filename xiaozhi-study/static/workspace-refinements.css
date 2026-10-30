@@ -1,0 +1,45 @@
+.learning-tools{margin-top:22px;border-top:1px solid #dce5d7;padding-top:16px}.learning-tools>summary{cursor:pointer;color:#617358}.learning-tools-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;padding-top:18px}.learning-tools-grid .task-card{margin:0}.study-atelier .now-card .health-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.study-atelier .now-card .health-value{font-size:16px;line-height:1.6}.study-atelier .now-card .health-note{font-size:12px;line-height:1.7}.study-atelier .rest-card .timer-clock{font-size:50px}.study-atelier #settings .settings-sub{font-family:inherit;font-size:16px}.study-atelier .monitor-rail .raw-metrics[hidden]{display:none!important}@media(max-width:900px){.learning-tools-grid{grid-template-columns:1fr}}
+/* Reading hierarchy: the current judgement leads, timing remains secondary. */
+.study-atelier main>header{margin-bottom:16px}
+.study-atelier .monitor-layout{align-items:start}
+.study-atelier .monitor-rail{display:flex;flex-direction:column;gap:18px}
+.study-atelier .monitor-rail>article{margin:0;width:100%}
+.study-atelier .monitor-rail .now-card{border-top:3px solid #78916c;background:#fffef9}
+.study-atelier .monitor-rail .now-activity{align-items:flex-start;flex-wrap:wrap}
+.study-atelier .monitor-rail .now-activity #activity{font-size:23px;line-height:1.5;font-weight:600}
+.study-atelier .monitor-rail .now-activity #reviewRecognition{margin:2px 0 0;min-height:32px}
+.study-atelier .now-card .health-grid{gap:0;border-top:1px solid #e0e7d9;border-bottom:1px solid #e0e7d9;margin:15px 0;padding:6px 0}
+.study-atelier .now-card .health-dimension{padding:10px 8px}
+.study-atelier .monitor-rail .rest-card{padding:18px 22px;background:#f5ead6;border-color:#e9d8b8}
+.study-atelier .rest-card .timer-clock{font-size:38px;margin:8px 0 12px}
+.monitor-context{display:flex;align-items:center;flex-wrap:wrap;gap:12px 22px;padding:12px 0 4px;color:#657766}
+.monitor-context>div{display:flex;align-items:center;gap:8px}
+.monitor-context small{font-size:12px;color:#7c897a}
+.monitor-context time{font-size:13px;color:#355f4e;font-variant-numeric:tabular-nums}
+.monitor-context p{font-size:12px;margin:0;flex:1;min-width:130px}
+.monitor-context button{font-size:12px;min-height:32px;padding:6px 10px;background:#edf3e8;border-color:#d8e3cf}
+.monitor-context[data-state=waiting] p{color:#9a7a42}
+.study-atelier .camera{aspect-ratio:4/3;height:auto;max-height:640px;margin:12px 0 14px;background:#28372e}
+.study-atelier .camera:has(img:not([hidden]))::before{content:"";position:absolute;inset:-30px;background-image:var(--camera-frame);background-position:center;background-size:cover;filter:blur(24px);opacity:.3;pointer-events:none}
+.study-atelier .camera img{background:transparent;object-fit:contain;width:100%;height:100%;position:absolute;inset:0;z-index:1}
+.study-atelier .camera:fullscreen{height:100vh;max-height:none;width:100vw;aspect-ratio:auto}
+.study-atelier .camera:fullscreen::before{display:none}
+.study-atelier .camera p{color:#d4dfd0;z-index:1}
+.study-atelier .camera .camera-guide{color:#d4dfd0;border-color:#81927d}
+.study-atelier .behavior-alerts{margin:12px 0 22px;padding:13px 18px;background:#fff4dc}
+.behavior-alert-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.behavior-alert-actions button:first-child{background:#fffaf0;border-color:#dfcba4;color:#7b602e}
+.settings-quick-nav{display:flex!important;justify-content:flex-start!important;flex-wrap:wrap;gap:9px!important;margin:0 0 22px;padding:0}
+.study-atelier .settings-quick-nav button{min-height:39px;background:#f3f6ed;border:1px solid #dbe4d2;font-size:13px;padding:8px 16px}
+.study-atelier .settings-quick-nav button:hover{background:#e7efdd}
+#settings>article{scroll-margin-top:112px}
+.record-load-footer,.analysis-load-row{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
+.record-load-footer{padding-top:22px;margin-top:18px;border-top:1px solid #e2e8d9}
+.record-load-footer span,.analysis-load-row p{font-size:12px;color:#75846f}
+.analysis-load-row button{font-size:12px;min-height:34px}
+.study-atelier .analysis-page-controls{padding-bottom:19px}
+.study-atelier .history-record{transition:background .12s ease}
+.study-atelier .history-record:hover{background:#f3f6eb}
+.study-atelier .history-featured:hover{background:#f7edd9}
+@media(min-width:1250px){.study-atelier .camera{height:clamp(420px,calc(100vh - 325px),640px);aspect-ratio:auto}.study-atelier .monitor-layout{grid-template-columns:minmax(0,1fr) 350px;gap:22px}.study-atelier main{padding-top:25px}}
+@media(prefers-reduced-motion:reduce){.study-atelier .history-record{transition:none}}

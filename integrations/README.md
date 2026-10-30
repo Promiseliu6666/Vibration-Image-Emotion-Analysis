@@ -1,27 +1,23 @@
-# 健康监测集成更新
+# 小智健康监测集成说明
 
-本次保留原系统登录、完整侧边栏及样式，新增小智导航与设备原始摄像头来源，支持独立多 USB 采集与并行预览，修复低帧率下稳定人脸触发和未注册身份阻塞分析的问题。本次没有重新训练模型权重。
+完整的小智服务源码现已合并到仓库内的 `xiaozhi-study/`，后续开发以该目录为唯一源码来源：
 
-根目录中的后端和前端路径对应振动项目。`xiaozhi-overlay` 是小智配套改动，请按相同相对路径应用到原小智项目；它不是独立完整的小智发行包。
+- 小智后端：`xiaozhi-study/app/`
+- 小智页面与静态资源：`xiaozhi-study/static/`
+- 门户后端集成：`ruoyi-fastapi-backend/xiaozhi_integration.py`
+- 门户前端入口：`ruoyi-fastapi-frontend/src/views/xiaozhi/`
+- 统一启动入口：项目根目录的 `start-local.cmd`
 
-`windows-platform` 保存原桌面外层的启动与兼容入口源码。使用时将其中内容放在振动项目目录的上一层，保持以下原部署布局：
+原 `xiaozhi-overlay/` 中的 16 个文件与 `xiaozhi-study/` 对应源码完全一致，因此已经移除。不要再维护一份独立的补丁副本，否则两边修改后容易出现运行版本和源码不一致。
 
-```
-外层目录/
-  employee-portal/
-  restart_health.py
-  启动健康监测平台.cmd
-  重启健康监测平台.cmd
-  Vibration-Image-Emotion-Analysis-main/
-    ruoyi-fastapi-backend/
-    ruoyi-fastapi-frontend/
-    start_local.py
-```
+服务运行端口：
 
-主入口仍是原系统 http://127.0.0.1:5173/；8800 仅保留兼容跳转。启动源码沿用本机目录、Node 路径与便携运行环境布局。换电脑需调整路径并重新配置 Python、前端、数据库与缓存依赖。
+- 门户前端：`5173`
+- 门户后端：`9099`
+- 小智后端：`8000`
+- 门户数据库：`13306`
+- 小智数据库：`3307`
 
-本机 `.env.dev` 和 `.runtime` 配置需自行保留或重新生成；本次不包含真实数据库密码、JWT、桥接和单点登录密钥。两个系统对应的桥接和单点登录密钥应一致，账号匹配须按现有同名且启用的账号进行授权。摄像头 RTSP 地址通过 `CAMERA_RTSP_URL` 设置，本次发布副本已移除原源码中的摄像头账号密码，没有修改原本机文件。
+`start-local.cmd` 会同时启动上述服务。`.runtime/`、`.venv/`、模型权重、日志、截图和数据库文件保留在本机，不提交到 Git。单点登录密钥和摄像头桥接密钥仍由各自运行目录的 `.runtime/` 保存，两个系统使用的密钥内容必须一致。
 
-此前在本机完成前端构建、双小智并行预览、人脸稳定触发和匿名分析验证。随附可移植回归测试：`python tests/test_face_stability.py`。
-
-本次不包含数据库、现场照片、录像、日志、缓存、虚拟环境、便携服务或模型下载。
+`windows-platform/` 中的桌面外层启动文件属于旧部署兼容入口，当前统一启动应使用根目录的 `start-local.cmd`。

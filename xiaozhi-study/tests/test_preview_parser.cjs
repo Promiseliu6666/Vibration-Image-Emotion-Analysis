@@ -1,0 +1,12 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
+const source=fs.readFileSync(path.join(__dirname,'../static/live-preview.js'),'utf8');
+const code=source.slice(source.indexOf('function headerEnd('),source.indexOf('async function startLivePreview('));
+const c={TextDecoder,Date,Uint8Array};vm.createContext(c);vm.runInContext(code,c);
+const jpeg=Buffer.from([255,216,1,2,3,255,217]);
+const header=Buffer.from('--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 7\r\nX-Captured-At: 123.456\r\n\r\n');
+const packet=Buffer.concat([header,jpeg,Buffer.from('\r\n')]);
+for(let n=0;n<packet.length;n++)assert.equal(c.extractMjpeg(packet.subarray(0,n)),null);
+const frame=c.extractMjpeg(packet);assert.equal(frame.capturedAt,123.456);assert.deepEqual(Buffer.from(frame.bytes),jpeg);assert.equal(frame.rest.length,0);
+assert.throws(()=>c.extractMjpeg(Buffer.alloc(5000)),/视频头异常/);
+assert.throws(()=>c.extractMjpeg(Buffer.from('--frame\r\nContent-Length: 99999999\r\n\r\n')),/视频帧大小异常/);
+console.log('PASS fragmented video packets, exact timestamps and malformed frame bounds');

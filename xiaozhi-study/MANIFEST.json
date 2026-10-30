@@ -1,0 +1,967 @@
+[
+  {
+    "path": ".env.example",
+    "bytes": 124,
+    "sha256": "064ea852995f901f3773c0271b548b94c699b5ca251a8785e8027639f5708f2e"
+  },
+  {
+    "path": ".gitignore",
+    "bytes": 653,
+    "sha256": "7207ecce18d1d00adaf0ad4bcb7ab6e437aa7e2af7c1eec07ffc673d9d6a7075"
+  },
+  {
+    "path": "README-LAN.md",
+    "bytes": 5296,
+    "sha256": "2ac965f19ed402db5089e0b658192398ab4d8b231fff1ba3f06b7a0da53e7b9d"
+  },
+  {
+    "path": "README-local.md",
+    "bytes": 322,
+    "sha256": "4df49306f73a5257aa987be861dae748a23e2081f4de9847aa06b5be8afadab1"
+  },
+  {
+    "path": "README-release-20261011.md",
+    "bytes": 2665,
+    "sha256": "acb08cb883ab637e5998672f99fdaa20f92b94e7d86e3418649bfbd756874056"
+  },
+  {
+    "path": "README-study-tools.md",
+    "bytes": 2197,
+    "sha256": "924ab1322b2923ff96f1de5c9c0bda2faf4f3b3f497eda8c63f9729da79cd2ee"
+  },
+  {
+    "path": "README-ui-design.md",
+    "bytes": 9523,
+    "sha256": "6289de880a4a56c599f463428d241e213bb6911b06b6af74758cc2cb2b98b666"
+  },
+  {
+    "path": "README-voice.md",
+    "bytes": 3159,
+    "sha256": "63272149176afb1f542a180e71cb1a95708d8d4b9a3eaf9396f2362fb024063f"
+  },
+  {
+    "path": "README.md",
+    "bytes": 8212,
+    "sha256": "6ee7eefb597f25c1b22883dd82e9be7f0ee844a8a1b22be859da4676aa637d06"
+  },
+  {
+    "path": "app/__init__.py",
+    "bytes": 41,
+    "sha256": "5ff512fe975b2381f3b50d48efa47245e7368b418dc40d002983f73392a29c03"
+  },
+  {
+    "path": "app/analysis/__init__.py",
+    "bytes": 71,
+    "sha256": "24b77313cadec799318a38d508d877c2d725c3efc5c922e3ca133a6bb981b7d8"
+  },
+  {
+    "path": "app/analysis/agent.py",
+    "bytes": 12435,
+    "sha256": "ee085fb41de6d9eff2c75a83a29f42c312c8cb5edfe69ec0dbf7504efac40667"
+  },
+  {
+    "path": "app/analysis/alert_archive.py",
+    "bytes": 725,
+    "sha256": "dfc14b2032c62b96c4539c36e1fc65d37b7095815c42f5b16f6a578dcbed0a51"
+  },
+  {
+    "path": "app/analysis/analysis_columns.py",
+    "bytes": 7274,
+    "sha256": "3ed541b07984d50a93e218fd806c4df5b01f54ef6811d28b5783043c3087eae9"
+  },
+  {
+    "path": "app/analysis/analysis_schema.py",
+    "bytes": 4339,
+    "sha256": "ca07db1b4fed33b84c885e3bc187cee5cfe98e9607d629df49c265560e9aa7ca"
+  },
+  {
+    "path": "app/analysis/analysis_storage.py",
+    "bytes": 10783,
+    "sha256": "ee114248f77d5acc5f4563d5291c22fc3f92d30ebec9124820e8a21500b7ada7"
+  },
+  {
+    "path": "app/analysis/analyzer.py",
+    "bytes": 46971,
+    "sha256": "9ceb7380da65538329ab1d4079f242859ca4709e260a0cf083f5c36e10ae85ca"
+  },
+  {
+    "path": "app/analysis/cbph_inference.py",
+    "bytes": 6396,
+    "sha256": "179f822e6fadac76fff2b8ec08a5862bad57dbb07b674e94c02e4c0da08c9156"
+  },
+  {
+    "path": "app/analysis/difficulty.py",
+    "bytes": 6419,
+    "sha256": "7e518a3cf5fe191216b6e4cbb51372500f875ad9849943944f5b67f34a0b6c69"
+  },
+  {
+    "path": "app/analysis/eye_alerts.py",
+    "bytes": 2039,
+    "sha256": "258ed74495022276870e6a8c29cdcde5e723eabc1d0ab518ed248c7a2f908b6a"
+  },
+  {
+    "path": "app/analysis/health_dimensions.py",
+    "bytes": 4760,
+    "sha256": "efb32a1ed1896ea423083b210f181080c7493e354493ca8755749630507e7313"
+  },
+  {
+    "path": "app/analysis/maintenance.py",
+    "bytes": 588,
+    "sha256": "e32a51212ec51a8a63c70dc058870d7386ee704fcc3f664617a36d4fdc7abdf0"
+  },
+  {
+    "path": "app/analysis/observation_status.py",
+    "bytes": 913,
+    "sha256": "712e016e977acde2463d4fb550dc7e373a345f210bba5ba2ec7ffdee75632c18"
+  },
+  {
+    "path": "app/analysis/phone_alerts.py",
+    "bytes": 7870,
+    "sha256": "c36d0fe0263dd87f6512d46c6e99733176b8d80724767546ad62eb9ac7bfd84d"
+  },
+  {
+    "path": "app/analysis/phone_detector.py",
+    "bytes": 6589,
+    "sha256": "45b2c2f5665697d87b066839b7bfa924fb6e193b905c8c682253e151f936695c"
+  },
+  {
+    "path": "app/analysis/rest_reminder.py",
+    "bytes": 2483,
+    "sha256": "b77405b919e682d53abf8a84dc7b2e83a4571f984b5e1f7a43ff95d2cbe060c7"
+  },
+  {
+    "path": "app/analysis/risk_flags.py",
+    "bytes": 6752,
+    "sha256": "413de442a6c12379966ad4a5a9a19b2a5a4ac8d577805b5e4966b7bf6ee9e130"
+  },
+  {
+    "path": "app/analysis/state_sync.py",
+    "bytes": 6521,
+    "sha256": "54bb39947eb344bf03535f0300dc7799dda727a7dc4a6ebd03a5be19f1b3a0bd"
+  },
+  {
+    "path": "app/analysis/study_observations.py",
+    "bytes": 6459,
+    "sha256": "fffd50ac0434e7464f3174d7e22eb025a6d6e00d03a5e267bffc27d0df2e4e16"
+  },
+  {
+    "path": "app/analysis/temporal_analysis.py",
+    "bytes": 1571,
+    "sha256": "b555a05ba4682ab3eaa8a59b7f268f84fb0df6059054264428a214c418940c35"
+  },
+  {
+    "path": "app/analysis/vibraimage_analyzer.py",
+    "bytes": 26676,
+    "sha256": "2bb8517589e7104f72e97d280780847184bf244e7e089b94f3c73ffee536cf00"
+  },
+  {
+    "path": "app/api/__init__.py",
+    "bytes": 58,
+    "sha256": "dfe5cce9180242ad2488cdae1f5ed100e3be37de06c3e3e4a0e2c3ddeaf4f8d5"
+  },
+  {
+    "path": "app/api/api_router.py",
+    "bytes": 34395,
+    "sha256": "51c7d6fe794849a30f9f62067b7d99f155a570bd1250440049cb0dfc1de71b78"
+  },
+  {
+    "path": "app/api/console_api.py",
+    "bytes": 15150,
+    "sha256": "31e252d67cb5fecd407794924f94605eabd929cf908b76af579deb8b8d15c6b8"
+  },
+  {
+    "path": "app/api/console_health.py",
+    "bytes": 533,
+    "sha256": "26fa44205e182a4ae18fd47f36a2a2cc66c8f17b32e39bd037657be6abf9d412"
+  },
+  {
+    "path": "app/api/continuous_preview.py",
+    "bytes": 1762,
+    "sha256": "0b80c6d5cb746e34bad679daec19e1ed4dce94987bfb0926abe932f353a30ac2"
+  },
+  {
+    "path": "app/api/health_api.py",
+    "bytes": 10086,
+    "sha256": "7a43094486d2b11e3f403ecb4073d1fa38234f0062d5d12c8131d97aba97fe08"
+  },
+  {
+    "path": "app/api/monthly_report.py",
+    "bytes": 10844,
+    "sha256": "d5116b4fa150c26f106fdf322aa99dea2b0be0d2a0d56ba99b709fe42b86c8d5"
+  },
+  {
+    "path": "app/api/network_ingest.py",
+    "bytes": 4436,
+    "sha256": "8511324e4f5c1c9263d57892388392be95da869917820ee3de59e90bfb68b653"
+  },
+  {
+    "path": "app/api/record_scope.py",
+    "bytes": 1636,
+    "sha256": "c135f26872ad67155a1ec8a4e29cca7f58ac46adf5f1a87be09a1aef06daa0a1"
+  },
+  {
+    "path": "app/api/study_api.py",
+    "bytes": 12465,
+    "sha256": "b66a7d31066a5ef58d502148c8cd69687390daca5eb308a3bda79f4657f5ed61"
+  },
+  {
+    "path": "app/api/wellbeing_reports.py",
+    "bytes": 7911,
+    "sha256": "168cf13c56b580a2b561744ce1d1d270e3c17f79f02d1e8c867eafa4012feb25"
+  },
+  {
+    "path": "app/api/workspace_api.py",
+    "bytes": 16347,
+    "sha256": "49706b4de178a10522835194b005b57de348b524711a61fac99213f8d4fcf457"
+  },
+  {
+    "path": "app/api/ws_handler.py",
+    "bytes": 10509,
+    "sha256": "662b23d2b1c40846617d200f88c66b74ba2f0800581b93fc38bdd02353f47146"
+  },
+  {
+    "path": "app/core/__init__.py",
+    "bytes": 71,
+    "sha256": "cc66d46e457383527be43cf303b577ac5b9876c192e98f2b2a22f6bf4dd31dce"
+  },
+  {
+    "path": "app/core/access_control.py",
+    "bytes": 5102,
+    "sha256": "d5fac2fe26f10e4fed560f5c17195f070fbbe4230c5015b03fb47b54de61a176"
+  },
+  {
+    "path": "app/core/config.py",
+    "bytes": 2940,
+    "sha256": "efb52e8774dab6a5296962a51dc5bf0e772af5551d30503c125c2437003d25e2"
+  },
+  {
+    "path": "app/core/crypto_utils.py",
+    "bytes": 2518,
+    "sha256": "a101b736687361df6195dd9510bcc02981493d25b75d6edb96e411401ef9ccfe"
+  },
+  {
+    "path": "app/core/db.py",
+    "bytes": 518,
+    "sha256": "3d25f8fa3a49b66a1e4467901cb4e9a2bca0a68a408c74aeddfd544ad50265f5"
+  },
+  {
+    "path": "app/core/latest_frames.py",
+    "bytes": 462,
+    "sha256": "d5e536b42fdb4471c5f96e1fcddc3e92c1824fad44b0da76c46609af50c3579b"
+  },
+  {
+    "path": "app/core/live_state.py",
+    "bytes": 3815,
+    "sha256": "48f9c11028b0bf22d798f9636f7b18014798293f427c2cad3ddb21f50647e0f6"
+  },
+  {
+    "path": "app/core/models.py",
+    "bytes": 4170,
+    "sha256": "54a87297ec512e35ebd7886280094ae2cfae7369448e058965a14cbb8b3384ed"
+  },
+  {
+    "path": "app/core/paths.py",
+    "bytes": 476,
+    "sha256": "b403766d342e93fd3c1a76dc3bde25d870fd80130e8d139b06c2d06be7a70e33"
+  },
+  {
+    "path": "app/core/site_settings.py",
+    "bytes": 791,
+    "sha256": "28c61f30fd762372f1d97d09e13234aef4a2ea12118cbe28c4a21e777dbed2e7"
+  },
+  {
+    "path": "app/core/wireless_setup.py",
+    "bytes": 6713,
+    "sha256": "f308bbba56f63d568ef8e6cba07eacbb333fc19538b0ab01e95e1bc4f4f947bd"
+  },
+  {
+    "path": "app/device/__init__.py",
+    "bytes": 55,
+    "sha256": "4d4c7ff4751696e793e84121b56c42082725b3538f8996538b97fc64e199c1d9"
+  },
+  {
+    "path": "app/device/capture_control.py",
+    "bytes": 3699,
+    "sha256": "9c0cbc2777b65fc860cf7c4457af914f79d9a986c859d022c2bdc34856d364b0"
+  },
+  {
+    "path": "app/device/device_registry.py",
+    "bytes": 772,
+    "sha256": "9efd5afc78fb2aaa9e7965ab3aad25bca9deba1a845e454b99904e6e87a5cf49"
+  },
+  {
+    "path": "app/device/usb_identity.py",
+    "bytes": 2602,
+    "sha256": "68bc3abce744add14b4fcfdc53795054521b487f62f5ef507154f118826749b2"
+  },
+  {
+    "path": "app/server.py",
+    "bytes": 4567,
+    "sha256": "39a942962963331762451997347689569cc1ad6b8e3d10e2aa51e96544fc9ab1"
+  },
+  {
+    "path": "bootstrap-runtime.py",
+    "bytes": 2550,
+    "sha256": "df9d38e5a4419e7b1a97a667d62bb9d94ddd07ed7cb0bfc2a1fbc520b4c0b604"
+  },
+  {
+    "path": "docs/analysis.md",
+    "bytes": 2402,
+    "sha256": "b676410d7e702d23c1697f6a32251e7e4ace42f9844b093740bf243797504a80"
+  },
+  {
+    "path": "docs/assistant-orb-20261013.md",
+    "bytes": 1426,
+    "sha256": "c7946445a28a8b57899fe0853a68ccb26a09b5d788fb6ce82cb08874bd8e977a"
+  },
+  {
+    "path": "docs/audit-20261013.md",
+    "bytes": 1217,
+    "sha256": "dcf4aa1ca1281a6a675f977ded0c5cc304d8503869cb7c8c6ffe1798b1cf539c"
+  },
+  {
+    "path": "docs/data-analysis-20261014.md",
+    "bytes": 2192,
+    "sha256": "162f0ee4e6ea6fda87d3b89b2811098b67932783a43d0cdcf2fc50b639b6b016"
+  },
+  {
+    "path": "docs/eye-and-posture.md",
+    "bytes": 1635,
+    "sha256": "b9bdba15fbca636af1fde46e5c57e947950065cf913030abadc581e554f58222"
+  },
+  {
+    "path": "docs/gitee-fusion-20261013.md",
+    "bytes": 1410,
+    "sha256": "4f56bf91b1633242a2d00051872d042efdbb5532d9d9176553d9e324259d3df8"
+  },
+  {
+    "path": "docs/gitee-fusion-20261014.md",
+    "bytes": 1825,
+    "sha256": "16432b60bc04e45acd24d8eb0d46c30a3d3f4b997c30eb2f98aa6f1be7a11418"
+  },
+  {
+    "path": "docs/health-habits.md",
+    "bytes": 1683,
+    "sha256": "2dcca05d5903eb5a577d10276f82d5a8a55c1caea2c1a3162968d268a6411e2c"
+  },
+  {
+    "path": "docs/improvement.md",
+    "bytes": 11983,
+    "sha256": "1e32a2dc69033ea0f711e4f13ff9f86d260c3921355932e30ac5a70a8d567e16"
+  },
+  {
+    "path": "docs/instruction.md",
+    "bytes": 729,
+    "sha256": "4e6fbe2df1006b6295fd97fbdbc74fec1c8f3f13ef644bb60731dadfb8d378a9"
+  },
+  {
+    "path": "docs/lan.md",
+    "bytes": 5383,
+    "sha256": "a048c7fc6fe0d479f469736f46c323db03dca37d0a72e6f014385ba6d69c0b9c"
+  },
+  {
+    "path": "docs/live-preview.md",
+    "bytes": 1473,
+    "sha256": "f877acc063569aed44d8fb749d697c793f6815c2a9f9cd38e819e1aa07e98b5f"
+  },
+  {
+    "path": "docs/local.md",
+    "bytes": 322,
+    "sha256": "4df49306f73a5257aa987be861dae748a23e2081f4de9847aa06b5be8afadab1"
+  },
+  {
+    "path": "docs/optimization-20261015.md",
+    "bytes": 3444,
+    "sha256": "c9d3c08dd8b9952f3c4beb8c3b4efb3865dbbf5e86e2ee0f93af51235b45fddf"
+  },
+  {
+    "path": "docs/original-delivery-notes.md",
+    "bytes": 7688,
+    "sha256": "38dce1b4e6b176f41ff09f16bee86d7257b3e66f007354831e47fce1b4bf5b03"
+  },
+  {
+    "path": "docs/product-polish-20261013.md",
+    "bytes": 1681,
+    "sha256": "583b289dc7d224163bac7914e2b80aed0054f9b782fb530232a6bc16d79ff517"
+  },
+  {
+    "path": "docs/release-20261011.md",
+    "bytes": 2665,
+    "sha256": "acb08cb883ab637e5998672f99fdaa20f92b94e7d86e3418649bfbd756874056"
+  },
+  {
+    "path": "docs/release-20261014.md",
+    "bytes": 966,
+    "sha256": "4abbbff5d25e0a57fe44ed285967f3090a3425abc7f0a0e27565da4ef1790548"
+  },
+  {
+    "path": "docs/runtime.md",
+    "bytes": 1901,
+    "sha256": "5e122443bea98d5c1e799ccd9a183e679331c85527b584ee2dce9615a99cf1ee"
+  },
+  {
+    "path": "docs/study-tools.md",
+    "bytes": 1861,
+    "sha256": "df60e7dd2896a67d5da1df94c00e076c09e74a2f9514f65eb83e0aad04bd2811"
+  },
+  {
+    "path": "docs/ui-design.md",
+    "bytes": 9523,
+    "sha256": "6289de880a4a56c599f463428d241e213bb6911b06b6af74758cc2cb2b98b666"
+  },
+  {
+    "path": "docs/ux-performance.md",
+    "bytes": 1968,
+    "sha256": "0d99d0175adb6a8f17c713a4d09d76c480a46739a8e455e3f844d0666f9825f7"
+  },
+  {
+    "path": "docs/voice.md",
+    "bytes": 3159,
+    "sha256": "63272149176afb1f542a180e71cb1a95708d8d4b9a3eaf9396f2362fb024063f"
+  },
+  {
+    "path": "docs/~$2项目文档-修订版.docx",
+    "bytes": 162,
+    "sha256": "082783ef14b3381b440b4c2c86efc0dde8907121849cd485b7678bc51c706fc0"
+  },
+  {
+    "path": "docs/~$2项目文档_修改版 (1).docx",
+    "bytes": 162,
+    "sha256": "282e9ad2b539da707bf880d8a36ead9c1bafcf7225a283d00a498b18dab851bf"
+  },
+  {
+    "path": "docs/主界面布局描述方案.md",
+    "bytes": 20686,
+    "sha256": "6cd0a740f8791b2e821df26b8c74efd1e784d9ba6cfa86967d6b005e58879d9b"
+  },
+  {
+    "path": "docs/交付说明.md",
+    "bytes": 983,
+    "sha256": "7767a0e4766be5d4733b5173875295e451272734d1cc8d34bde41f9f2f708408"
+  },
+  {
+    "path": "docs/前端改造方案-主界面收敛.md",
+    "bytes": 11126,
+    "sha256": "cb9a263ab7c0a66066731509f2476aac6d90f37aa48e5431b401bc7563334f31"
+  },
+  {
+    "path": "docs/智慧城市大赛-项目说明书-健康赛道版.md",
+    "bytes": 22892,
+    "sha256": "d6391a4d912a7adfa39a5a793ee47d70634f6f65ed9e48ec22e43a51a2bb79b7"
+  },
+  {
+    "path": "docs/智慧城市大赛-项目说明书-初稿.docx",
+    "bytes": 48021,
+    "sha256": "2e71ef74e0ac83171f413e445ca4c3d699f4d4c4d1ae9630a897702a6d8fb179"
+  },
+  {
+    "path": "docs/智慧城市大赛-项目说明书-初稿.md",
+    "bytes": 19155,
+    "sha256": "3f17efc358f8107ab3b9fc645164339bb6ed7e76661e5ecfbcead88d853f742e"
+  },
+  {
+    "path": "docs/附件2项目文档-修订版.docx",
+    "bytes": 51160,
+    "sha256": "161b8583938e5d4a3999c05fc2f8b64e42c85cd02b33ee6ef60b710ad2ab19f0"
+  },
+  {
+    "path": "docs/附件2项目文档-修订版.md",
+    "bytes": 23991,
+    "sha256": "3027106dd9e0de184ef0e1b9a6b3aced74431a8c71ed8f0d3abc3f6e40deb1bf"
+  },
+  {
+    "path": "docs/附件2项目文档-内容修订稿.docx",
+    "bytes": 50165,
+    "sha256": "10733612da9ca7de16befb690b399fe298c7b41945e87074dc154ffade4bb1ae"
+  },
+  {
+    "path": "docs/附件2项目文档-内容修订稿.md",
+    "bytes": 22204,
+    "sha256": "78339636c44b7a0dd80a3c74797028342401c1132b6a896824bfff30df71c3d8"
+  },
+  {
+    "path": "docs/附件2项目文档-智慧生活与大健康版.docx",
+    "bytes": 47479,
+    "sha256": "55928dbb2fdcd288d9296813a546e509b5236739355256f812ab155647a253e7"
+  },
+  {
+    "path": "docs/附件2项目文档-智慧生活与大健康版.md",
+    "bytes": 20463,
+    "sha256": "e12d958fcc253b27fd06f255100468112fb326a76ebc8fcc60db151a5c3f65b1"
+  },
+  {
+    "path": "docs/附件2项目文档_修改版 (1).docx",
+    "bytes": 746945,
+    "sha256": "ac863c5322ef02b4264b9840d0c4723bdab8fb6cc1e5bf9eacca6d68268dbb94"
+  },
+  {
+    "path": "docs/需求文档-健康赛道.md",
+    "bytes": 24107,
+    "sha256": "0106c44a529acab5402ff384f6df1acadbabb7f4bef753c9629f6a3e5d40b036"
+  },
+  {
+    "path": "docs/项目说明.html",
+    "bytes": 8316,
+    "sha256": "7075c36feadb971d0bf8c5039dbf722dcd744e22880843d53926bc555ac71231"
+  },
+  {
+    "path": "docs/项目说明.md",
+    "bytes": 8052,
+    "sha256": "88b3b452ed28e09c1db38b267aa5d5b2db2f192a83a86c1608e5e2558efacfc9"
+  },
+  {
+    "path": "main.py",
+    "bytes": 259,
+    "sha256": "4ff6169eb8fd4063c14179c077007a30129c0a18c73ee96e144f62f1704113e1"
+  },
+  {
+    "path": "models/LICENSE-phone-model.txt",
+    "bytes": 11560,
+    "sha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5"
+  },
+  {
+    "path": "models/README-phone.md",
+    "bytes": 1523,
+    "sha256": "e462c18b4732b0263299cb314c5ba1f071abdcd54e98094bf8b4e5a59c92944c"
+  },
+  {
+    "path": "models/cbph_best.onnx",
+    "bytes": 12144747,
+    "sha256": "cf713ab76788a45857d1ba6e3ee5a134646c4c7b448becd91bee9f6a99ab2522"
+  },
+  {
+    "path": "models/phone_ssd.onnx",
+    "bytes": 29461455,
+    "sha256": "b8fba5e404077d4048d27fcd1667e85e27e192eb9bf51e696c46a3acd7d21058"
+  },
+  {
+    "path": "open-project.cmd",
+    "bytes": 111,
+    "sha256": "11a416f8e05e40ee5a25505704995b19002066c27fced89fbce0b1ea23994b80"
+  },
+  {
+    "path": "open-project.ps1",
+    "bytes": 659,
+    "sha256": "42f456bfbc4dde232450ccfb13e1ca17923bcc441739d3c47cee1db5346c86fe"
+  },
+  {
+    "path": "prepare-portable.ps1",
+    "bytes": 717,
+    "sha256": "6832df1e253252daaf11546ae4790da510084ac79fbb73b0a2d87f04a05b0556"
+  },
+  {
+    "path": "pytest.ini",
+    "bytes": 103,
+    "sha256": "925124e8764a8d665e2ea39eba8d442c78b38b28e9148f19bed85d112429e458"
+  },
+  {
+    "path": "requirements-compatible.txt",
+    "bytes": 516,
+    "sha256": "b8261e6b80dcbbb639cf58e213a03cd33f3154b0255398111ccf1c2e4934cc21"
+  },
+  {
+    "path": "requirements-lock.txt",
+    "bytes": 1380,
+    "sha256": "da5183c5df013aa5a4fe598335a7cbc0b6821805f6f59e6cfbab9adf47a7b0b0"
+  },
+  {
+    "path": "requirements.txt",
+    "bytes": 516,
+    "sha256": "b8261e6b80dcbbb639cf58e213a03cd33f3154b0255398111ccf1c2e4934cc21"
+  },
+  {
+    "path": "start-watcher.cmd",
+    "bytes": 110,
+    "sha256": "9dd51e10099baa03e9cb98363707a379f325593ffd1f1a324dd66d5fe4e96523"
+  },
+  {
+    "path": "start-watcher.ps1",
+    "bytes": 1182,
+    "sha256": "1f1d0d12323dabd7f751f5735552a1db26b4c14b911dff9289eea103c7d91308"
+  },
+  {
+    "path": "start.cmd",
+    "bytes": 102,
+    "sha256": "d95852f2b31c7d967f148aeaf2db0b6eb5206c2ed065f2910cb13c8eec0e102b"
+  },
+  {
+    "path": "start.ps1",
+    "bytes": 1725,
+    "sha256": "85411688fe43a348dd17eccbe8ac8ae27b6a792fc566d44bef24dd08dc94ca0a"
+  },
+  {
+    "path": "static/analysis-metrics.js",
+    "bytes": 2987,
+    "sha256": "0aaf19b5bc2cf0e8e4ea10e5c5065e12fee4d2c58e28e25eba2ba76127245e06"
+  },
+  {
+    "path": "static/assets/study-dawn.webp",
+    "bytes": 222872,
+    "sha256": "61dfec63217854b3fec27b464364db968b4cd45ea623a43c0b843feb2198e792"
+  },
+  {
+    "path": "static/assistant-orb.css",
+    "bytes": 6807,
+    "sha256": "0f906308d52dddbd115d796f887c86a619b77a83d47d2067777c79511478e358"
+  },
+  {
+    "path": "static/assistant-orb.js",
+    "bytes": 10311,
+    "sha256": "282fbfb8e8924a5c955b912bdd571dbc22d99ff09b5f763c492b10c66e795518"
+  },
+  {
+    "path": "static/behavior-alerts.js",
+    "bytes": 2962,
+    "sha256": "682870e853784e6899ac2df71f92ebcd1ee776dd4390f2d901f0becb077195b2"
+  },
+  {
+    "path": "static/console.css",
+    "bytes": 59589,
+    "sha256": "081eff606c2403b79d3185ac4bf9f61d13d1fbb0a816b874d362b3f0266bec4a"
+  },
+  {
+    "path": "static/console.js",
+    "bytes": 40912,
+    "sha256": "41a3bcdaa334bb28226b70a1566851dfa44c41b102996b40a0275f1bf4866d41"
+  },
+  {
+    "path": "static/dashboard.html",
+    "bytes": 30540,
+    "sha256": "b33856cce8ee60ea709ade22e29ac7c45823d97f4ff5ac3af8b6a6d23c4af1a4"
+  },
+  {
+    "path": "static/data-analysis.css",
+    "bytes": 6420,
+    "sha256": "20aa847a1357b3a795e1bd7b6424004869446f7e8c7b83aeea83a5846810d153"
+  },
+  {
+    "path": "static/data-analysis.js",
+    "bytes": 12931,
+    "sha256": "757c780ff704cbf6ae73025a944c97e7f5b326df57ef24a3805c3ce5f2f8eeb5"
+  },
+  {
+    "path": "static/health-dimensions.js",
+    "bytes": 26313,
+    "sha256": "4aff8711cf0c4c913a7c6c3d131fb1451ccc269dc88edcf7c40ebd4ada7cf8e4"
+  },
+  {
+    "path": "static/health-habits.js",
+    "bytes": 8578,
+    "sha256": "9d87cdfd02348f90a21ce5f56a23b6589137268a08cacdd7b7354afce2eb44e5"
+  },
+  {
+    "path": "static/health.css",
+    "bytes": 8815,
+    "sha256": "dc816ff8d921a84a55d5612c1c70aec54e715a61dcc86057b0a9774d47d71c68"
+  },
+  {
+    "path": "static/help.css",
+    "bytes": 2096,
+    "sha256": "2110b1e13f8df075db0ed343f18bc8e2ff2a7b59563e1874b1d868950582f301"
+  },
+  {
+    "path": "static/live-preview.js",
+    "bytes": 10637,
+    "sha256": "c5bab10df9b8cfd4662af5d60febf9ecb12f960ea0b9ec2ca95761037d9badff"
+  },
+  {
+    "path": "static/live.css",
+    "bytes": 5179,
+    "sha256": "f236538068ed8b8336a6cdf4748475e7f2759571325e0a37e0fdc15a66d3a45e"
+  },
+  {
+    "path": "static/login-scene.css",
+    "bytes": 3588,
+    "sha256": "6d032fa04d4a79a3f183f16e929bd6f285ee71dacc79fe340f4595f824d05812"
+  },
+  {
+    "path": "static/login-scene.js",
+    "bytes": 620,
+    "sha256": "0e1e062d7015180295436ce5fdf3974c1c0f0de6a326f3be0006f0c91b4d3269"
+  },
+  {
+    "path": "static/login.html",
+    "bytes": 3934,
+    "sha256": "ad8ee56cc2cb4c69d7c8e0fde0d99133a80030088b918d5792667b67646d9386"
+  },
+  {
+    "path": "static/monthly-report.js",
+    "bytes": 6732,
+    "sha256": "c71044ed0a1ecaf1268335c528415df7afcdd2d2a07734505c64dd1dd4c168ec"
+  },
+  {
+    "path": "static/session-review.js",
+    "bytes": 10405,
+    "sha256": "4180b8a2e097c2fc4b4095978862366da22c17002d16e1d6dd88ff941694b55d"
+  },
+  {
+    "path": "static/session.html",
+    "bytes": 3166,
+    "sha256": "fc4c3ab378a71f5f500dcb5b1abef51c8c2b9eed0d38cc81c5666eff4b998c80"
+  },
+  {
+    "path": "static/settings.css",
+    "bytes": 5585,
+    "sha256": "783a901190573be5aa596013468a19b73962fbd42b31836227ab8307af5a80c6"
+  },
+  {
+    "path": "static/study-tools.js",
+    "bytes": 5054,
+    "sha256": "c7fa3ef4d899fef850d6e7ad5b9f80113f52705e4d4053fd32f1f96699c10b95"
+  },
+  {
+    "path": "static/top-navigation.css",
+    "bytes": 1372,
+    "sha256": "e1ac3997a8c353c00e6f2f648e081a8b4c45f1d556c9b847264bfd5d3586471f"
+  },
+  {
+    "path": "static/ui-performance.js",
+    "bytes": 7178,
+    "sha256": "d681fc7708a59fcc409198eaaeed30a700ebaef2550f998bc0cacc1cdc318a49"
+  },
+  {
+    "path": "static/vendor/chart.umd.min.js",
+    "bytes": 205889,
+    "sha256": "206b6e8bb00fc7bba2c7ee80ca41db3e9e05ba7be0aa35abeba9cfd5357f5d0e"
+  },
+  {
+    "path": "static/wellbeing.js",
+    "bytes": 10495,
+    "sha256": "04accf3a563614233725a4db3fa5590fc35ed7b752fc98958694d3444d6bc441"
+  },
+  {
+    "path": "static/workspace-experience.js",
+    "bytes": 2924,
+    "sha256": "ce877adf9670271d5d0fcbe50d7d44985cf2515d05bcf584d39d9dc963c8cdbb"
+  },
+  {
+    "path": "static/workspace-layout.js",
+    "bytes": 1113,
+    "sha256": "726132dedbc2b10ce6ec5cedfdca141c96b714979e51fc7798db729a8ae99a8c"
+  },
+  {
+    "path": "static/workspace-refinements.css",
+    "bytes": 4661,
+    "sha256": "c1b01b4ab6c2f1d27b9782be7b49433ad978c147c930e21710efc0e94ce8089b"
+  },
+  {
+    "path": "static/workspace-scene.css",
+    "bytes": 19228,
+    "sha256": "0fe665188a66fca4ac3aee16cb2436f79079d898e898b39fcca289c04122deed"
+  },
+  {
+    "path": "static/workspace.js",
+    "bytes": 19865,
+    "sha256": "6c8dfb55ab5221d739b59eeb70e2d3b18e9f4de6e26830f993a39ed11b959a5d"
+  },
+  {
+    "path": "stop-watcher.cmd",
+    "bytes": 109,
+    "sha256": "9fc42bfb3bf3d69bdd90750588dde840b4ee6ef50c6336f116cdd678615688ae"
+  },
+  {
+    "path": "stop-watcher.ps1",
+    "bytes": 498,
+    "sha256": "bb7a331d932c7497cf80e42c27fa8dd3828e5fe8610cf0862421aaf1a3035610"
+  },
+  {
+    "path": "stop.cmd",
+    "bytes": 85,
+    "sha256": "d5b6d1ca0bb5ba8110b342fa8a49bd85509cfa4ca72982b106860ddfdfac2533"
+  },
+  {
+    "path": "stop.ps1",
+    "bytes": 745,
+    "sha256": "0807516fb0e78c778246ed9d9d517b1934c96cb16d6675b00a0ac52601c9dc07"
+  },
+  {
+    "path": "tests/mock_device.py",
+    "bytes": 1323,
+    "sha256": "977a4cf589377d03394dccac9651ea41ee44750efc4d5dba61812dc01b4b0cca"
+  },
+  {
+    "path": "tests/test_analysis_metrics.cjs",
+    "bytes": 1223,
+    "sha256": "703d0b95aae3d6c169b8c2e99aca2b9fab8a519bb1bcfb6adcc9f4353127e2c6"
+  },
+  {
+    "path": "tests/test_analysis_schema.py",
+    "bytes": 2421,
+    "sha256": "468f0fe8e8ba45a13dfe27a2bb375c95b2e8c5624a2ceb1caf04ac6ea0f50869"
+  },
+  {
+    "path": "tests/test_analysis_storage.py",
+    "bytes": 2529,
+    "sha256": "f0dac17aeb7b0449b7656ff7ee88545c2b5800423a1a46dae7a713294c55c1ac"
+  },
+  {
+    "path": "tests/test_analytics_scope.cjs",
+    "bytes": 1063,
+    "sha256": "5737cf0bf8674db1ebb5c39a4c777446ad8722db9b92dcf2c15333ee2eb087d2"
+  },
+  {
+    "path": "tests/test_analyzer.py",
+    "bytes": 3097,
+    "sha256": "ef7fa453a9ef5fca46eaff11fb2edaa6ff0991133aee81f30c5d8a5b46aac867"
+  },
+  {
+    "path": "tests/test_api.py",
+    "bytes": 1669,
+    "sha256": "7449a0ba1a65d9933d9efca6000fe8c65fac81c1dba75dac5022fe85ef80d679"
+  },
+  {
+    "path": "tests/test_assistant_chat.py",
+    "bytes": 2861,
+    "sha256": "c4995849438dde40d0f9a8571a7cbc7a382c4ebc035bced3fe21b62914fa8d02"
+  },
+  {
+    "path": "tests/test_behavior_upgrade.py",
+    "bytes": 3605,
+    "sha256": "4dce1c0026b9e2b9097c03a576830cd5c430dd6ae059986ad53f099139613c0b"
+  },
+  {
+    "path": "tests/test_console_health.py",
+    "bytes": 1648,
+    "sha256": "2cc7591b5dcfbe612e12b49d2c7d935659120d8289d87fdde08d3909b25930b7"
+  },
+  {
+    "path": "tests/test_continuous_preview.py",
+    "bytes": 2619,
+    "sha256": "98bc02f77677cc96e8d3971e0517d955f340fc66c55a02588d22afba69b61097"
+  },
+  {
+    "path": "tests/test_detection_accuracy.py",
+    "bytes": 14003,
+    "sha256": "c2802143f92dd040a3f1f6abaec2b4b7d96b4536147463748c0761a13df78cd1"
+  },
+  {
+    "path": "tests/test_eye_alerts.py",
+    "bytes": 1034,
+    "sha256": "65964e0d5776bda6939b0ad8937e353891e242051239433284fd5ed172ef0c9a"
+  },
+  {
+    "path": "tests/test_health_device_race.cjs",
+    "bytes": 1577,
+    "sha256": "9b253da56335200dd89cc8f084bde2268b23c21654a44b2ed4eea9c99513c512"
+  },
+  {
+    "path": "tests/test_health_habits.py",
+    "bytes": 2657,
+    "sha256": "63f610841fed62873a357fb3ddcc65bdd00a6dd539ddaa8e142c1537ad2f0e50"
+  },
+  {
+    "path": "tests/test_observation_status.py",
+    "bytes": 770,
+    "sha256": "016fc2351323c0a06163c94297fa0713357ef6688412353f82ec5e93f804aecf"
+  },
+  {
+    "path": "tests/test_observation_window.py",
+    "bytes": 1624,
+    "sha256": "07579ba7fe686e79736375e9fc9f7dcd9190e212eb068077b244ea51d48cbfe5"
+  },
+  {
+    "path": "tests/test_phone_alerts.py",
+    "bytes": 8592,
+    "sha256": "a8f3a36a2535d02a0b8e706a35e2c5269680344e078f9b36679bfb5317348f93"
+  },
+  {
+    "path": "tests/test_preview_parser.cjs",
+    "bytes": 1160,
+    "sha256": "73b7e11b8170fa6a5e0ab1fe483062494954165f792e5ce1c5192b20f7bccbbf"
+  },
+  {
+    "path": "tests/test_recognition_review.py",
+    "bytes": 1631,
+    "sha256": "15a80c2d98e5e961967ad6a54bcd726704d05eab00c971643b339591c2994a25"
+  },
+  {
+    "path": "tests/test_record_scope.py",
+    "bytes": 2250,
+    "sha256": "972351cb834ee4b51e68c8f8ed560a31b8f1f4094811326c11c74eecd6a65fb4"
+  },
+  {
+    "path": "tests/test_risk_flags.py",
+    "bytes": 2985,
+    "sha256": "3670b15521220b3bcb2db97630e7d2806e09b02624564841f55d9e9528694fcd"
+  },
+  {
+    "path": "tests/test_runtime_audit.py",
+    "bytes": 2849,
+    "sha256": "a8cd87ccbf96b6a164b7322ca260403fbdf875baeac5499967f5e7ad13d0999a"
+  },
+  {
+    "path": "tests/test_state_sync.py",
+    "bytes": 4208,
+    "sha256": "cdd0ff3c844a2a7c6ada833075518b5294dea03eca360abc3a04945b51aa9c9e"
+  },
+  {
+    "path": "tests/test_study_tools.py",
+    "bytes": 2289,
+    "sha256": "ec2ee28bf8e9deb4f6ec4c6f93da1a301b402f37470bb934efab63f5eae6c946"
+  },
+  {
+    "path": "tests/test_temporal_evidence.py",
+    "bytes": 8832,
+    "sha256": "a7eb11ff840bde8de58abc978ae0bf961184ad918af8b253af57c7c7081fefa1"
+  },
+  {
+    "path": "tests/test_usb_preview_speed.py",
+    "bytes": 1721,
+    "sha256": "9bdabaf681c925168b57187f98b157a9f6ee297e79c7ce54440afe754e9dd7cf"
+  },
+  {
+    "path": "tests/test_wellbeing_comparison.py",
+    "bytes": 1245,
+    "sha256": "43a0d4d3341680a4579428802894321058fabec948671cdc6cb4d6977fbaae1d"
+  },
+  {
+    "path": "tests/test_wellbeing_observations.py",
+    "bytes": 3170,
+    "sha256": "1f0176eca0a22bbda555c7680e99efeabf05bb13f90746caab094611ba658c6a"
+  },
+  {
+    "path": "tests/test_wellbeing_reports.py",
+    "bytes": 1185,
+    "sha256": "5284585355a3bed09b4f4f71feb68e8febe3f5699f1e309268d2e7d41b3ff3d8"
+  },
+  {
+    "path": "tests/test_wireless_fusion.py",
+    "bytes": 1022,
+    "sha256": "9f31f810e7252e78b95d8fcc3b566f57952b2e1bf9e745fa8bd40cfed6d27f80"
+  },
+  {
+    "path": "tests/test_workspace_records.cjs",
+    "bytes": 2018,
+    "sha256": "1d92a3773c883827630c5cc34d3d8f5f26dc464ab6bd05f8edbf59b402d48a17"
+  },
+  {
+    "path": "tools/build_docx.py",
+    "bytes": 6770,
+    "sha256": "7a9775d65a81541fb72330f88252e99dc3ee18e1476ad95d8d58017b768b746c"
+  },
+  {
+    "path": "tools/build_docx_md.py",
+    "bytes": 6905,
+    "sha256": "338bc459c2506741ec707f594ace51a72dbd0f6a7c912c8f9ab928f8bc802e14"
+  },
+  {
+    "path": "tools/init_db.py",
+    "bytes": 566,
+    "sha256": "28ec84aa5ac3d3f0f356d193460c49c70d48da55e9ba9d5a4bf6191a977c7626"
+  },
+  {
+    "path": "tools/network_client.py",
+    "bytes": 1895,
+    "sha256": "e087ff4eb22e39a5000f0794b2a6ddf8783af5dec2dee62dba55e05ce73ef899"
+  },
+  {
+    "path": "tools/setup_wireless.py",
+    "bytes": 1373,
+    "sha256": "3525b7bc65df4ccd85f6d670715cf0ed6444cbf89cc75050d5da78e7d62b2b0b"
+  },
+  {
+    "path": "watcher_usb.py",
+    "bytes": 9812,
+    "sha256": "05e79f18a304be2d0e001883751b9062ae8494faa30d21484b63eda5fb5a6660"
+  }
+]

@@ -1,0 +1,125 @@
+/* ===================================================================
+   健康数据呈现：健康记录分栏、今日维度分布、月度报告与健康记录面板。
+
+   归属：本文件只放"健康数据"的呈现规则。实时监测页自己的样式（此刻四项指标、
+   时段监测卡、核对入口）在 live.css，设置页样式在 settings.css，全局骨架在 console.css。
+   =================================================================== */
+
+/* ---------- ① 健康记录分栏 ---------- */
+.history-columns{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0 4px}
+.history-column{display:grid;gap:3px;text-align:left;padding:14px 16px;min-height:0;border:1px solid #e2e7d9;border-radius:12px;background:#fffef9;font-weight:400}
+.history-column:hover{background:#f4f8ee;border-color:#c3d3b4}
+.history-column[aria-pressed=true]{background:#eef4e5;border-color:#b0c79b;box-shadow:inset 0 0 0 1px #b0c79b}
+.history-column small{font-size:11px;font-weight:600;letter-spacing:.5px;color:#4b6b52}
+.history-column strong{font-family:"Georgia",serif;font-weight:400;font-size:26px;line-height:1.15;color:#33402f;font-variant-numeric:tabular-nums}
+.history-column span{font-size:11px;color:#8b948c}
+@media(max-width:900px){.history-columns{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:680px){.history-columns{grid-template-columns:1fr}.history-column strong{font-size:23px}}
+
+/* ---------- ② 今日分布（维度分组） ---------- */
+.dim-row{display:grid;gap:4px}
+.dim-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.dim-head strong{font-size:12px;color:#3f4a3c}
+.dim-value{font-size:11px;color:#626e5d;font-variant-numeric:tabular-nums}
+.dim-hint{font-size:11px;color:#8b948c}
+.dim-split{font-size:11px;color:#6f7d68}
+.dim-row .bar{margin:1px 0 0;height:5px;background:#e4ecdb}
+.dim-row .bar>i{background:#94aa7d}
+
+/* ---------- ③ 月度报告：作息时段分布 ---------- */
+.hour-bars{display:flex;gap:3px;align-items:flex-end;margin:14px 0 6px}
+.hour-bar{flex:1;display:grid;gap:4px}
+.hour-bar .bar{height:54px;display:flex;align-items:flex-end;margin:0;background:#eef2e7;border-radius:3px;overflow:hidden}
+.hour-bar .bar>i{width:100%;background:#94aa7d;border-radius:3px 3px 0 0}
+.hour-bar small{font-size:9px;line-height:1;text-align:center;color:#8b948c}
+
+/* ---------- ④ 健康记录：样本构成（互斥，可加总 100%） ---------- */
+.composition{margin:20px 0 6px}
+.composition h3{font-family:"STSong","SimSun",serif;font-weight:400;font-size:19px;color:#3f4a3c;margin:0 0 12px}
+.composition-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:#eef2e7;margin:0 0 12px}
+.composition-seg{display:block;height:100%}
+.seg-vision{background:#7f9c63}
+.seg-sedentary{background:#c9a15e}
+.seg-attention{background:#8f9ab5}
+.seg-data{background:#d5dbcd}
+.composition-legend{display:flex;flex-wrap:wrap;gap:8px 20px}
+.composition-item{display:flex;align-items:center;gap:6px;font-size:12px;color:#5d675a}
+.composition-item i{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+.composition-item b{font-weight:600}
+.composition-item em{font-style:normal;color:#8b948c;font-variant-numeric:tabular-nums}
+
+/* ---------- ⑤ 健康记录：情绪压力趋势（独立数据源） ---------- */
+.stress-trend{margin:22px 0 6px;padding:18px 20px;border:1px solid #e2e7d9;border-radius:14px;background:#fffef9}
+.stress-trend h3{font-family:"STSong","SimSun",serif;font-weight:400;font-size:19px;color:#3f4a3c;margin:0 0 14px}
+.trend-head{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.trend-metric{display:grid;gap:4px;min-width:0}
+.trend-metric small{font-size:11px;color:#8b948c}
+.trend-metric strong{font-family:"Georgia","Times New Roman",serif;font-weight:400;font-size:26px;line-height:1.15;color:#33402f;font-variant-numeric:tabular-nums}
+.trend-arrow{font-family:"Microsoft YaHei UI","DengXian",sans-serif;font-style:normal;font-size:13px;color:#8b948c;margin-left:4px}
+.trend-bars{margin:16px 0 8px}
+@media(max-width:900px){.trend-head{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* 记录条目上的"主维度"标签，沿用行为标签外观但按维度分色 */
+.behavior-chip.behavior-dim-vision{background:#eef4e5;color:#4f6c40}
+.behavior-chip.behavior-dim-sedentary{background:#f7f0e2;color:#7a6134}
+.behavior-chip.behavior-dim-attention{background:#eef0f6;color:#5a6478}
+.behavior-chip.behavior-dim-data{background:#f0f2ec;color:#77806f}
+
+/* ---------- ⑥ 健康记录的子模块（小界面选项） ---------- */
+.health-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0 4px}
+.health-tab{min-height:38px;padding:8px 14px;font-size:13px;font-weight:500;border:1px solid #e2e7d9;border-radius:10px;background:#fbfcf5;color:#5c6657}
+.health-tab:hover{background:#f0f4e8;border-color:#c3d3b4}
+.health-tab[aria-selected=true]{background:#e2ebd6;border-color:#b0c79b;color:#3e5434;font-weight:600}
+
+.health-panel{margin-top:16px}
+.panel-head h3{font-family:"STSong","SimSun",serif;font-weight:400;font-size:20px;color:#3f4a3c;margin:0 0 6px}
+.panel-note{font-size:11px;line-height:1.7;color:#8b948c;margin:14px 0 0}
+
+.metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.metric-tile{display:grid;gap:6px;padding:14px 16px;border:1px solid #e3ead8;border-radius:12px;background:#f8fbf3;min-width:0}
+.metric-tile.tone-warn{background:#fff6e9;border-color:#eccb96}
+.metric-label{font-size:11px;color:#8b948c}
+.metric-figure{font-family:"Georgia","Times New Roman",serif;font-weight:400;font-size:30px;line-height:1.15;color:#33402f;font-variant-numeric:tabular-nums}
+.metric-figure em{font-family:"Microsoft YaHei UI","DengXian",sans-serif;font-style:normal;font-size:12px;color:#6d756e;margin-left:4px}
+.metric-tile .bar{margin:2px 0 0;height:4px;background:#e4ecdb}
+.metric-tile .bar>i{background:#94aa7d}
+.metric-tile.tone-warn .bar>i{background:#c08a3e}
+
+.reason-list{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px}
+.reason-list small{flex:0 0 100%;font-size:11px;color:#8b948c}
+.reason-chip{font-size:12px;padding:5px 10px;border-radius:8px;background:#f2f4ee;color:#5d675a}
+
+@media(max-width:1150px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:680px){.metric-grid{grid-template-columns:1fr}.health-tab{flex:1 1 auto;justify-content:center}}
+
+/* ---------- ⑦ 风险标志位筛选（三态 · 可重叠 · OR） ---------- */
+.flag-filter{margin:14px 0 0;padding:14px 16px;border:1px solid #e2e7d9;border-radius:12px;background:#fbfcf5}
+.flag-filter>small{display:block;font-size:11px;color:#8b948c;margin-bottom:10px}
+.flag-row{display:flex;flex-wrap:wrap;gap:8px}
+.flag-chip{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:6px 12px;font-size:12px;font-weight:500;border:1px solid #e2e7d9;border-radius:9px;background:#fff;color:#5c6657}
+.flag-chip:hover{background:#f0f4e8;border-color:#c3d3b4}
+.flag-chip.on{background:#e2ebd6;border-color:#b0c79b;color:#3e5434;font-weight:600}
+.flag-chip em{font-style:normal;font-size:11px;color:#8b948c;font-variant-numeric:tabular-nums}
+.flag-chip.on em{color:#5c7a4a}
+.flag-clear{min-height:34px;padding:6px 12px;font-size:12px;background:transparent;border:1px dashed #c9d3bf;color:#6d756e}
+
+/* 标志位筛选现在内嵌在各自的观测维度面板里 */
+.panel-flags{margin-top:16px;padding:14px 16px;border:1px solid #e2e7d9;border-radius:12px;background:#fbfcf5}
+.panel-flags-host:empty{display:none}
+.panel-flags>small{display:block;font-size:11px;color:#8b948c;margin-bottom:10px}
+
+/* ---------- ⑧ 说明小字统一收进问号（悬停 / 键盘聚焦展开） ----------
+   各面板的说明文字不再以灰色小字铺在页面上，改为标题右侧的问号浮层。 */
+.panel-head-row,.composition-head,.trend-title,.columns-head,.flags-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.panel-head .panel-head-row h3{margin:0}
+.composition .composition-head{margin:0 0 12px}
+.composition .composition-head h3{margin:0}
+.stress-trend .trend-title{margin:0 0 14px}
+.stress-trend .trend-title h3{margin:0}
+.columns-head{margin:18px 0 8px}
+.columns-head strong{font-family:"STSong","SimSun",serif;font-weight:400;font-size:19px;color:#3f4a3c}
+.columns-head+.history-columns{margin-top:0}
+.flags-head{margin-bottom:10px}
+.flags-head small{font-size:11px;color:#8b948c}
+
+.metric-figure.metric-words,.daily-summary .metrics strong.metric-words{font-family:'Microsoft YaHei',sans-serif;font-size:clamp(19px,1.7vw,27px);line-height:1.6;font-weight:500;overflow-wrap:anywhere}

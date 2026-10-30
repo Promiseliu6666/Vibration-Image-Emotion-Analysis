@@ -1,0 +1,59 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node
+node_modules/
+
+# Runtime data
+frames/
+
+# Dev tools (local data)
+.superpowers/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files (may contain secrets)
+.env
+.env.local
+
+# Local MySQL, private config, logs and original unusable environment
+.runtime/
+.venv-original-backup/
+
+# Private runtime, local design tooling and distributables
+.agents/
+.impeccable/
+*.log
+*.zip
+*.bin
+.env.*
+!.env.example
+
+# Private test images stay local
+tests/*.jpg
+tests/*.jpeg
+tests/*.png
+
+# Model weights are local/release assets, not source files
+models/*.onnx
+models/*.pt
+models/*.pth
+models/*.ckpt

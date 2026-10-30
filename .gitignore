@@ -151,6 +151,7 @@ nohup.out
 **/.run/
 **/.venv/
 **/node_modules/
+**/node_cache/
 **/__pycache__/
 **/logs/
 **/frames/
@@ -163,3 +164,14 @@ nohup.out
 *.db
 *.sqlite
 *.sqlite3
+
+# Local-only diagnostics and temporary workspace files
+.tmp-*/
+error_solution.md
+快速开始.md
+
+# Large model weights are kept locally or distributed as release assets
+**/*.onnx
+**/*.pt
+**/*.pth
+**/*.ckpt

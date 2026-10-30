@@ -1,0 +1,11 @@
+/* Repository navigation treatment, scoped to the top-level workspace bar. */
+.study-atelier>aside{min-height:90px;background:rgba(255,254,246,.96);border-bottom:1px solid #dde4d3;box-shadow:0 4px 24px rgba(69,88,45,.035)}
+.study-atelier>aside>nav{display:flex;align-items:center;justify-content:center;gap:5px}
+.study-atelier>aside>nav button{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;padding:12px 18px;border:0;border-radius:12px;background:transparent;color:#637261;font-size:16px;line-height:1.5;font-weight:400;white-space:nowrap;box-shadow:none;transition:background .15s ease,color .15s ease}
+.study-atelier>aside>nav button:hover{background:#edf3e6;color:#355f4e}
+.study-atelier>aside>nav button.active,.study-atelier>aside>nav button[aria-current=page]{background:#e5edda;color:#365b3d;font-weight:600;box-shadow:inset 0 0 0 1px #d4dfc7}
+.study-atelier>aside>nav button:focus-visible{outline:3px solid #7d9865;outline-offset:3px}
+.study-atelier>aside>nav .ui-icon{width:20px;height:20px;stroke-width:1.7}
+@media(max-width:1150px){.study-atelier>aside>nav button{font-size:14px;padding:11px 12px;gap:8px;min-height:48px}}
+@media(max-width:900px){.study-atelier>aside>nav{justify-content:flex-start}.study-atelier>aside>nav button{flex:1}}
+@media(prefers-reduced-motion:reduce){.study-atelier>aside>nav button{transition:none}}

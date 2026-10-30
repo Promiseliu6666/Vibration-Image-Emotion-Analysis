@@ -77,12 +77,12 @@ source E:/.../ruoyi-fastapi.sql
 
 ## 核心要点速记
 
-| 问题 | 关键点 | 解决方式 |
-|------|--------|----------|
-| PowerShell 路径执行 | 引号路径被当字符串 | 加 `&` 调用运算符 |
-| 参数被拆行 | `-u` 与用户名分离 | 整条命令写一行 |
-| Data too long | 严格模式拒绝截断 | `SET SESSION sql_mode=''` |
-| `source` 语法错误 | 客户端命令不能用于 `-e` | 用管道重定向或登录后执行 |
+| 问题              | 关键点            | 解决方式                      |
+| --------------- | -------------- | ------------------------- |
+| PowerShell 路径执行 | 引号路径被当字符串      | 加 `&` 调用运算符               |
+| 参数被拆行           | `-u` 与用户名分离    | 整条命令写一行                   |
+| Data too long   | 严格模式拒绝截断       | `SET SESSION sql_mode=''` |
+| `source` 语法错误   | 客户端命令不能用于 `-e` | 用管道重定向或登录后执行              |
 
 **最终可用的导入命令（一行版）：**
 
@@ -90,7 +90,24 @@ source E:/.../ruoyi-fastapi.sql
 (Get-Content "E:\Learning\Binhua\Vibration-Image-Emotion-Analysis-main\ruoyi-fastapi-backend\sql\ruoyi-fastapi.sql" -Raw) | & "D:\AA_install\mysql-8.0.44-winx64\bin\mysql.exe" -h 127.0.0.1 -P 3306 -u root -p ruoyi_fastapi --init-command="SET SESSION sql_mode=''"
 ```
 
-  - 在全新环境中，你原来的创建数据库命令是对的。                                                                                                                 
-  - 你之前导入时缺少 --default-character-set=utf8mb4，这是乱码的直接原因。                                           
-  - 既然不需要备份，就要先删除数据库，再重新创建和导入。                                                             
-                                                               
+- 在全新环境中，你原来的创建数据库命令是对的。                                                                                                                 
+- 你之前导入时缺少 --default-character-set=utf8mb4，这是乱码的直接原因。                                           
+- 既然不需要备份，就要先删除数据库，再重新创建和导入。                                                             
+
+                                                               请到 QQ 邮箱网页版：                                                                                               
+
+  设置 → 账号 → 开启 POP3/IMAP/SMTP 服务 → 生成授权码                                                                
+
+  然后把新生成的 QQ 授权码填入：                                                                                     
+
+  MAIL_PASSWORD=新的QQ邮箱授权码         
+
+
+
+![](C:\Users\15826\AppData\Roaming\marktext\images\2026-10-29-13-20-17-image.png)
+
+
+
+
+
+vhitjxlslgddecdd

@@ -1,0 +1,18 @@
+
+body.login-cinematic{min-height:100vh;background:#eceddf;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(380px,.8fr);position:relative;isolation:isolate;overflow-x:hidden;color:#293b30}
+.login-landscape{position:fixed;inset:-2%;z-index:-2;background:#eceddf url("assets/study-dawn.webp") center/cover no-repeat;transform:translate3d(var(--scene-x,0px),var(--scene-y,0px),0) scale(1.025);transition:transform .8s ease-out;pointer-events:none}
+.login-cinematic:before{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(249,248,235,.58),rgba(249,248,235,.10) 45%,rgba(249,248,235,.64));pointer-events:none}
+.login-cinematic .login-story{background:none;border:0;padding:48px clamp(36px,5vw,88px);display:flex;flex-direction:column;justify-content:flex-start;min-height:100vh;position:relative}
+.login-cinematic .brand{font-size:25px;align-items:center}.login-cinematic .brand small{color:#425a48;font-size:12px}.login-cinematic .brand-mark{background:#fffdf3b8;border:1px solid #ffffffb3}
+.login-cinematic .login-story h1{margin:clamp(90px,17vh,180px) 0 22px;font-family:"STSong","SimSun",serif;font-size:clamp(38px,4.2vw,64px);line-height:1.32;letter-spacing:1px;font-weight:400;color:#203c2e;text-shadow:0 2px 24px #fff8e5b0}
+.login-cinematic .login-story>p{font-size:16px;line-height:1.9;max-width:430px;color:#354e3d}.login-cinematic .story-foot{margin-top:auto;padding-top:80px;color:#304a38;font-size:13px;letter-spacing:1px}
+.login-cinematic .login-main{background:none;padding:50px 50px 50px 0;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.login-cinematic .login-box{width:100%;max-width:410px;padding:38px 36px;background:rgba(255,254,247,.88);border:1px solid rgba(255,255,255,.85);border-radius:22px;box-shadow:0 24px 70px rgba(38,59,37,.12);backdrop-filter:blur(18px);animation:scene-enter .65s ease-out both}
+.login-cinematic .login-symbol{background:#e8efdf;color:#496647;border:0}.login-cinematic .login-box h2{font-family:"STSong","SimSun",serif;font-size:29px;line-height:1.4;font-weight:400;margin-top:22px}.login-cinematic .login-box>p{color:#63715f;font-size:14px;line-height:1.7}.login-cinematic .field input{background:rgba(255,255,250,.85);border-color:#ced8c6;min-height:48px}.login-cinematic #loginButton{min-height:48px;background:#42654e;box-shadow:0 8px 20px #42654e22;transition:background .2s,transform .2s}.login-cinematic #loginButton:hover{background:#31563d;transform:translateY(-1px)}
+.login-cinematic .login-story h1,.login-cinematic .login-story>p{animation:scene-enter .8s ease-out both}.login-cinematic .login-story>p{animation-delay:.1s}
+@keyframes scene-enter{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:1050px){.login-cinematic .login-story{padding:36px}.login-cinematic .login-main{padding-right:28px}.login-cinematic .login-box{padding:30px}.login-cinematic .login-story h1{font-size:43px}}
+@media(max-width:760px){body.login-cinematic{grid-template-columns:1fr}.login-cinematic .login-story{min-height:0;padding:28px}.login-cinematic .login-story h1{margin:40px 0 12px;font-size:36px}.login-cinematic .story-foot{display:none}.login-cinematic .login-main{min-height:0;padding:12px 24px 40px}.login-cinematic .login-box{max-width:450px}}
+@media(prefers-reduced-motion:reduce){.login-cinematic *{animation:none!important;transition:none!important}.login-landscape{transform:none}}
+
+.login-cinematic .story-foot{align-self:flex-start;background:#fffdf0c9;padding:10px 14px;border-radius:6px;color:#354b3b}

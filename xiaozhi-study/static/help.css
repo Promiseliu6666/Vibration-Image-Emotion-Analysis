@@ -1,0 +1,27 @@
+/* 卡片右上角的说明入口。
+   平时只留一个细边圆圈问号，鼠标悬停或键盘聚焦时展开一张便签式浮层。
+   视觉语言沿用学习工坊：暖白纸面、细线绿、无重阴影。 */
+.help{position:relative;display:inline-flex;flex:0 0 auto}
+.help-corner{position:absolute;top:22px;right:24px;z-index:2}
+.assistant-card,#settings article{position:relative}
+
+.help-btn{width:22px;height:22px;min-height:0;padding:0;border:1px solid #d7ded0;border-radius:50%;background:#fff;color:#8a938a;font-size:12px;font-weight:600;line-height:1;letter-spacing:0;display:grid;place-items:center}
+.help-btn:hover{background:var(--accent-soft,#eaf0e5);border-color:#bccdb1;color:var(--accent,#476953)}
+.help-btn:focus-visible{outline:3px solid #6b8758;outline-offset:2px}
+
+/* 指针从问号移向浮层时，用一小段透明桥接维持悬浮状态 */
+.help::after{content:"";position:absolute;top:100%;right:0;width:100%;height:12px}
+
+.help-pop{position:absolute;top:calc(100% + 12px);right:0;z-index:40;width:min(320px,74vw);max-height:min(58vh,400px);overflow:auto;margin:0;padding:14px 16px;border:1px solid #e6ddc9;border-radius:12px;background:#fbf7ec;color:#4b5348;font-size:12px;line-height:1.75;text-align:left;box-shadow:0 16px 36px #3b4a3a1f;opacity:0;visibility:hidden;transform:translateY(-4px);transition:opacity .14s ease,transform .14s ease,visibility .14s;pointer-events:none}
+.help:hover .help-pop,.help:focus-within .help-pop{opacity:1;visibility:visible;transform:none;pointer-events:auto}
+
+.help-pop p{margin:0 0 9px;font-size:12px;color:#4b5348}
+.help-pop p:last-child{margin-bottom:0}
+
+/* 窄屏：问号可能换行到行首，右侧对齐的浮层会溢出，改成贴底卡片 */
+@media(max-width:680px){
+  .help-corner{top:18px;right:18px}
+  .help-pop{position:fixed;top:auto;right:16px;bottom:16px;left:16px;width:auto;max-height:46vh;transform:translateY(10px)}
+  .help:hover .help-pop,.help:focus-within .help-pop{transform:none}
+}
+@media(prefers-reduced-motion:reduce){.help-pop{transition:none;transform:none}}
