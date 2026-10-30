@@ -168,7 +168,7 @@ nohup.out
 # Local-only diagnostics and temporary workspace files
 .tmp-*/
 error_solution.md
-快速开始.md
+/快速开始.md
 
 # Large model weights are kept locally or distributed as release assets
 **/*.onnx

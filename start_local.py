@@ -1,5 +1,5 @@
 from pathlib import Path
-import os,socket,subprocess,time,shutil,json
+import os,socket,subprocess,time,shutil,json,urllib.error,urllib.request
 root=Path(__file__).resolve().parent
 b=root/'ruoyi-fastapi-backend';f=root/'ruoyi-fastapi-frontend';x=root/'xiaozhi-study'
 logs=root/'.runtime/logs';logs.mkdir(parents=True,exist_ok=True)
@@ -20,6 +20,15 @@ def listening(port):
  try:
   with socket.create_connection(('127.0.0.1',port),timeout=1): return True
  except OSError: return False
+
+def http_ready(url):
+ try:
+  with urllib.request.urlopen(url,timeout=2) as response:
+   return response.status<500
+ except urllib.error.HTTPError as exc:
+  return exc.code<500
+ except OSError:
+  return False
 
 def launch(name,args,cwd,port):
  if listening(port): print(name,'already running');return
@@ -65,10 +74,10 @@ if not listening(xdb_port):raise ConnectionError(f'Xiaozhi MySQL is not listenin
 launch('backend',[b/'.venv/Scripts/python.exe','app.py','--env=dev'],b,9099)
 launch('xiaozhi',[xpython,'-u','main.py'],x,8000)
 for _ in range(60):
- if listening(9099) and listening(8000):break
+ if http_ready('http://127.0.0.1:9099/openapi.json') and http_ready('http://127.0.0.1:8000/'):break
  time.sleep(1)
-if not listening(9099):print('Warning: main backend is still starting on port 9099')
-if not listening(8000):print('Warning: Xiaozhi backend is still starting on port 8000')
+if not http_ready('http://127.0.0.1:9099/openapi.json'):print('Warning: main backend is still starting on port 9099')
+if not http_ready('http://127.0.0.1:8000/'):print('Warning: Xiaozhi backend is still starting on port 8000')
 node_path=shutil.which('node')
 if not node_path:raise FileNotFoundError('Node.js was not found on PATH.')
 node=Path(node_path)

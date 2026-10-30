@@ -28,7 +28,7 @@ videoController = APIRouter(
 
 # ==================== 摄像头配置 ====================
 RTSP_URL = ""  # Configure CAMERA_RTSP_URL locally.
-LOCAL_CAMERA_INDEX = int(os.getenv("LOCAL_CAMERA_INDEX", "1"))
+LOCAL_CAMERA_INDEX = int(os.getenv("LOCAL_CAMERA_INDEX", "0"))
 SIMILARITY_THRESHOLD = 0.4
 
 RTSP_URL = os.getenv("CAMERA_RTSP_URL", RTSP_URL)
@@ -788,6 +788,8 @@ async def reset_analysis(source: str = Query(...), device_id: str = ''):
     if source not in stable_state:
         raise HTTPException(status_code=400, detail="无效的source参数")
 
+    if source in camera_hubs:
+        camera_hubs[source].close()
     if global_caps[source]:
         global_caps[source].release()
         global_caps[source] = None

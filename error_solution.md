@@ -91,23 +91,39 @@ source E:/.../ruoyi-fastapi.sql
 ```
 
 - 在全新环境中，你原来的创建数据库命令是对的。                                                                                                                 
+
 - 你之前导入时缺少 --default-character-set=utf8mb4，这是乱码的直接原因。                                           
+
 - 既然不需要备份，就要先删除数据库，再重新创建和导入。                                                             
-
+  
                                                                请到 QQ 邮箱网页版：                                                                                               
-
+  
   设置 → 账号 → 开启 POP3/IMAP/SMTP 服务 → 生成授权码                                                                
-
+  
   然后把新生成的 QQ 授权码填入：                                                                                     
-
+  
   MAIL_PASSWORD=新的QQ邮箱授权码         
-
-
 
 ![](C:\Users\15826\AppData\Roaming\marktext\images\2026-10-29-13-20-17-image.png)
 
-
-
-
-
 vhitjxlslgddecdd
+
+
+
+
+
+原因是“本机摄像头”默认选中了索引 1，而电脑上的索引 1 是 vivo办公套件摄像头，不是笔记本的 HP Wide  
+Vision HD Camera。因此虽然接口返回 200，画面却不正常。
+
+已修改：
+
+- Vibration-Image-Emotion-Analysis-main/ruoyi-fastapi-backend/hik_vision/hik_vision.py:31 将本机摄像
+  头默认索引从 1 改为 0。
+
+- Vibration-Image-Emotion-Analysis-main/ruoyi-fastapi-frontend/src/views/monitor/druid/index.vue:299
+  切换到本机摄像头时，不再携带小智设备 ID。
+
+- 后端已重启，前端构建通过。
+  
+  已验证索引 0 能输出 640×480 画面，单帧为非黑图片。现在回到监控页按 Ctrl + F5，重新选择“本机摄像头”即
+  可。若仍无画面，请关闭 vivo 办公套件或其他正在占用摄像头的应用后再试。

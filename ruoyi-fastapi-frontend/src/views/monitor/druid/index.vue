@@ -295,10 +295,16 @@ const deviceStreamUrl=id=>`${baseURL}/video/feed/analysis?source=xiaozhi&device_
 let cameraStatusTimer=null
 const xiaozhiDevices=ref([])
 const xiaozhiSourceError=ref('')
-const sourceQuery=computed(()=>`source=${cameraSource.value}&device_id=${encodeURIComponent(xiaozhiDevice.value)}`)
+const sourceQuery=computed(()=>cameraSource.value==='xiaozhi'
+  ? `source=xiaozhi&device_id=${encodeURIComponent(xiaozhiDevice.value)}`
+  : `source=${cameraSource.value}`)
+let xiaozhiDevicesLoading=false
 async function loadXiaozhiDevices(){
- try{const d=await request({url:'/video/xiaozhi/devices',method:'get'});xiaozhiDevices.value=d.devices||[];if(!xiaozhiDevice.value&&xiaozhiDevices.value.some(x=>x.online))xiaozhiDevice.value=xiaozhiDevices.value.find(x=>x.online).device_id;xiaozhiSourceError.value=xiaozhiDevices.value.length?'':'尚未连接小智设备，请到设备管理接入'}
+ if(xiaozhiDevicesLoading)return
+ xiaozhiDevicesLoading=true
+ try{const d=await request({url:'/video/xiaozhi/devices',method:'get',timeout:20000});xiaozhiDevices.value=d.devices||[];if(!xiaozhiDevice.value&&xiaozhiDevices.value.some(x=>x.online))xiaozhiDevice.value=xiaozhiDevices.value.find(x=>x.online).device_id;xiaozhiSourceError.value=xiaozhiDevices.value.length?'':'尚未连接小智设备，请到设备管理接入'}
  catch(e){xiaozhiSourceError.value='小智服务未连接，请检查设备管理'}
+ finally{xiaozhiDevicesLoading=false}
 }
 watch(xiaozhiDevice,()=>{clearResults();videoStatus.value='connecting';statusText.value='正在连接所选设备…';showConnectionTip.value=false;reconnectAttempts.value=0})
 onMounted(()=>{loadXiaozhiDevices();cameraStatusTimer=setInterval(()=>{if(cameraSource.value==='xiaozhi')loadXiaozhiDevices()},4000)})
@@ -612,6 +618,7 @@ const resetParams = async () => {
 // ==================== 摄像头切换 ====================
 watch(cameraSource, async (newVal, oldVal) => {
   if (oldVal && oldVal !== newVal) {
+    if (videoImg.value) videoImg.value.removeAttribute('src')
     stopPolling()
     shouldPolling.value = false
     clearResults()
