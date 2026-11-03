@@ -4,33 +4,10 @@
       <div class="page-intro__copy">
         <span class="page-intro__eyebrow">BEHAVIOUR SIGNAL</span>
         <h1>疲劳检测</h1>
-        <p>根据眼口行为与姿态变化观察当前专注度，数据约每秒更新一次。</p>
+        <p>根据表情与姿态变化评估当前专注度，数据约每秒更新一次。</p>
       </div>
       <div class="page-intro__controls">
-        <el-select
-          v-model="cameraSource"
-          class="source-select"
-          aria-label="摄像头来源"
-        >
-          <el-option label="小智摄像头" value="xiaozhi" />
-          <el-option label="本机摄像头" value="local" />
-          <el-option label="海康 RTSP" value="rtsp" />
-        </el-select>
-        <el-select
-          v-if="cameraSource === 'xiaozhi'"
-          v-model="xiaozhiDevice"
-          class="source-select source-select--device"
-          placeholder="自动选择在线设备"
-          clearable
-          @visible-change="visible => visible && loadDevices()"
-        >
-          <el-option
-            v-for="device in devices"
-            :key="device.device_id"
-            :label="`${device.name}${device.online ? ' · 在线' : ' · 未出图'}`"
-            :value="device.device_id"
-          />
-        </el-select>
+        <CameraSwitcher />
         <el-button :loading="resetting" @click="restartSession">
           <el-icon><Refresh /></el-icon>
           重新检测
@@ -77,7 +54,7 @@
             @click="toggleDetectionBoxes"
           >
             <el-icon><Aim /></el-icon>
-            {{ showBoxes ? '隐藏检测信息' : '显示检测信息' }}
+            {{ showBoxes ? '隐藏检测框' : '显示检测框' }}
           </button>
           <div class="video-caption">
             <span>{{ cameraLabel }}</span>
@@ -100,39 +77,21 @@
           <div class="frame-priority__grid">
             <div class="frame-metric">
               <span class="frame-metric__label">
-                左眼闭合
-                <el-tooltip
-                  content="当前这一帧左眼处于闭合状态的可能性，范围是 0～1，越大表示越像闭眼。"
-                  placement="top"
-                >
-                  <QuestionFilled class="metric-help" tabindex="0" />
-                </el-tooltip>
+                左眼闭合概率
               </span>
               <strong>{{ formatNumber(result.p_left, 3) }}</strong>
               <small>P(closed)</small>
             </div>
             <div class="frame-metric">
               <span class="frame-metric__label">
-                右眼闭合
-                <el-tooltip
-                  content="当前这一帧右眼处于闭合状态的可能性，范围是 0～1，越大表示越像闭眼。"
-                  placement="top"
-                >
-                  <QuestionFilled class="metric-help" tabindex="0" />
-                </el-tooltip>
+                右眼闭合概率
               </span>
               <strong>{{ formatNumber(result.p_right, 3) }}</strong>
               <small>P(closed)</small>
             </div>
             <div class="frame-metric">
               <span class="frame-metric__label">
-                嘴巴张开
-                <el-tooltip
-                  content="当前这一帧嘴巴处于张开状态的可能性。瞬时张嘴不一定会被判定为哈欠。"
-                  placement="top"
-                >
-                  <QuestionFilled class="metric-help" tabindex="0" />
-                </el-tooltip>
+                嘴巴张开概率
               </span>
               <strong>{{ formatNumber(result.p_mouth, 3) }}</strong>
               <small>P(open)</small>
@@ -141,7 +100,7 @@
               <span class="frame-metric__label">
                 姿态置信度
                 <el-tooltip
-                  content="鼻子、双耳和双肩五个关键点的平均识别置信度，表示姿态检测是否可靠。"
+                  content="表示系统对鼻子、双耳和双肩等关键点的识别可靠程度。数值越高，姿态数据越可信；数值过低时，可能受遮挡、光线或拍摄距离影响。"
                   placement="top"
                 >
                   <QuestionFilled class="metric-help" tabindex="0" />
@@ -161,7 +120,7 @@
             <h2 class="panel-title">
               专注度
               <el-tooltip
-                content="BiGRU 根据最近 30 个一秒特征综合计算的专注程度，数值越高表示越清醒、越专注。"
+                content="表示系统根据最近约 30 秒的眨眼、哈欠和姿态给出的清醒程度估计。数值越高，表示越清醒、越专注；数值越低，表示疲劳倾向越明显。"
                 placement="top"
               >
                 <QuestionFilled class="metric-help" tabindex="0" />
@@ -185,7 +144,7 @@
             <span class="score-label">
               原始值
               <el-tooltip
-                content="当前这一次 BiGRU 计算得到的原始专注度，波动通常比平滑值更明显。"
+                content="表示当前时刻的即时专注度估计。数值越高越清醒，越低越疲劳；其短期波动较明显。"
                 placement="top"
               >
                 <QuestionFilled class="metric-help" tabindex="0" />
@@ -197,7 +156,7 @@
             <span class="score-label">
               平滑值
               <el-tooltip
-                content="由当前原始值和上一次结果按比例融合得到，用于减少分数跳动。"
+                content="由当前估计与历史结果加权得到，用于降低分数的短期波动。"
                 placement="top"
               >
                 <QuestionFilled class="metric-help" tabindex="0" />
@@ -212,7 +171,7 @@
             <span class="score-label">
               特征窗口
               <el-tooltip
-                content="已经收集到的有效一秒特征数量。达到 30 个后，BiGRU 才会开始产生专注度。"
+                content="表示系统已累计多少秒有效数据。达到 30 秒后开始评分；该数值仅反映准备进度。"
                 placement="top"
               >
                 <QuestionFilled class="metric-help" tabindex="0" />
@@ -234,7 +193,7 @@
             <span class="score-label">
               累计眨眼
               <el-tooltip
-                content="从本次检测开始以来累计完成的眨眼次数，不是最近一分钟的次数。"
+                content="表示本次检测累计完成的眨眼次数。应结合检测时长与个人平时情况解读，不宜单独作为疲劳判断依据。"
                 placement="top"
               >
                 <QuestionFilled class="metric-help" tabindex="0" />
@@ -246,7 +205,7 @@
             <span class="score-label">
               累计哈欠
               <el-tooltip
-                content="从本次检测开始以来累计完成的哈欠次数，短时间张嘴不会直接计入。"
+                content="表示本次检测累计完成的哈欠次数。数值较高通常提示困倦倾向，但仍需结合检测时长和个人情况判断。"
                 placement="top"
               >
                 <QuestionFilled class="metric-help" tabindex="0" />
@@ -297,7 +256,7 @@
               <span class="runtime-label">
                 推理帧率
                 <el-tooltip
-                  content="每秒完成多少次面部、眼口和姿态推理。数值越高，画面更新越流畅。"
+                  content="表示系统每秒处理的画面帧数。数值越高，画面更新越流畅；数值过低时可能出现延迟。"
                   placement="top"
                 >
                   <QuestionFilled class="metric-help" tabindex="0" />
@@ -310,7 +269,7 @@
               <span class="runtime-label">
                 平均延迟
                 <el-tooltip
-                  content="模型处理一帧画面所需的时间，数值越低响应越快。"
+                  content="表示系统处理一帧画面所需的平均时间。数值越低，响应越快；数值越高，延迟越明显。"
                   placement="top"
                 >
                   <QuestionFilled class="metric-help" tabindex="0" />
@@ -324,7 +283,7 @@
           <div class="metric-list">
             <MetricRow
               label="时序运算速度"
-              help="BiGRU 时序模型单次推理的理论处理速度，不是专注度分数的刷新频率。"
+              help="表示专注度模型每秒可完成的计算次数。数值越高，评分更新越及时；该指标不等同于画面帧率。"
               :value="result.temporal_fps"
               :digits="1"
               suffix="FPS"
@@ -345,7 +304,7 @@
           <div class="metric-list">
             <MetricRow
               label="眼睛闭合占比"
-              help="最近 60 秒中，眼睛闭合概率超过 0.80 的时间比例，也叫 PERCLOS。"
+              help="最近 60 秒中，眼睛闭合概率超过 0.80 的时间比例。数值越高，通常表示困倦倾向越明显；数值越低，表示睁眼时间占比越高。"
               :value="features.perclos"
               :digits="3"
               strong
@@ -366,13 +325,13 @@
             />
             <MetricRow
               label="眼闭合方差"
-              help="最近 60 秒眼闭合概率的波动程度。越大表示睁闭眼变化越频繁，不代表一定更疲劳。"
+              help="表示最近 60 秒闭眼程度的波动幅度。数值越高，睁眼与闭眼的切换越频繁；数值越低，状态越稳定。该指标不能单独用于判断疲劳。"
               :value="features.eye_closure_variance"
               :digits="4"
             />
             <MetricRow
               label="平均眼闭合"
-              help="最近 60 秒内所有有效帧的眼睛闭合概率平均值，不是闭眼时间占比。"
+              help="表示最近 60 秒闭眼程度的平均值。数值越高，画面中的闭眼倾向越明显；数值越低，睁眼倾向越明显。"
               :value="features.mean_p_eye"
               :digits="3"
             />
@@ -405,13 +364,13 @@
             />
             <MetricRow
               label="张嘴比例"
-              help="最近 60 秒中张嘴概率超过 0.70 的时间比例，可能来自哈欠、说话或呼吸。"
+              help="最近 60 秒中张嘴概率超过 0.70 的时间比例。数值越高，张口持续时间越长，可能由哈欠、说话或呼吸引起；数值越低，闭嘴时间越多。"
               :value="features.mouth_open_ratio"
               :digits="3"
             />
             <MetricRow
               label="平均张嘴"
-              help="最近 60 秒内所有有效帧的嘴巴张开概率平均值。"
+              help="表示最近 60 秒张嘴程度的平均值。数值越高，整体张口程度越明显；数值越低，整体越接近闭嘴状态。"
               :value="features.mean_p_mouth"
               :digits="3"
             />
@@ -430,52 +389,52 @@
           <div class="metric-list">
             <MetricRow
               label="头部俯仰"
-              help="鼻子相对双肩中点的垂直位置，并按肩宽归一化。正值通常表示头部位置更偏下。"
+              help="表示头部相对肩部的上下位置变化。数值越高，通常表示低头或前倾程度越明显；数值越低，越接近抬头状态。持续低垂可作为困倦线索。"
               :value="features.head_pitch"
               :digits="3"
               signed
             />
             <MetricRow
               label="头部侧倾"
-              help="双耳连线的倾斜角，单位为弧度。正负值表示头部向不同方向倾斜。"
+              help="表示头部向左右倾斜的程度。绝对值越大，倾斜越明显；正负号仅表示倾斜方向，不代表疲劳程度。"
               :value="features.head_roll"
               :digits="3"
               signed
             />
             <MetricRow
               label="肩部倾斜"
-              help="双肩连线的倾斜角，单位为弧度，数值越大表示肩线倾斜越明显。"
+              help="表示双肩高度不一致的程度。绝对值越大，肩线倾斜越明显；正负号仅表示倾斜方向，不直接代表疲劳。"
               :value="features.shoulder_tilt"
               :digits="3"
               signed
             />
             <MetricRow
               label="头部尺寸比"
-              help="双耳距离与肩宽的比例，可用于观察人物距离和姿态变化。"
+              help="表示头部尺寸相对肩宽的比例。数值越高，通常表示人物离镜头越近；数值越低，表示距离越远。该指标不直接反映疲劳。"
               :value="features.head_size_ratio"
               :digits="3"
             />
             <MetricRow
               label="头部运动量"
-              help="相邻画面之间鼻子的平均移动量，数值越大表示头部动作越多。"
+              help="表示相邻画面之间头部位置的平均变化量。数值越高，头部活动越明显；数值越低，头部越稳定。该指标不能单独用于判断疲劳。"
               :value="features.head_motion_energy"
               :digits="4"
             />
             <MetricRow
               label="头部垂直漂移"
-              help="最近 60 秒鼻子垂直位置的标准差，越大表示头部上下波动越明显。"
+              help="表示最近 60 秒头部上下位置的波动幅度。数值越高，点头或上下移动越明显；数值越低，头部位置越稳定。"
               :value="features.head_drift_y"
               :digits="4"
             />
             <MetricRow
               label="姿态漂移"
-              help="最近 60 秒肩膀中点垂直位置的标准差，反映身体整体上下移动程度。"
+              help="表示最近 60 秒身体上下位置的波动幅度。数值越高，身体移动越明显；数值越低，坐姿越稳定。"
               :value="features.posture_drift"
               :digits="4"
             />
             <MetricRow
               label="关键点可见度"
-              help="五个姿态关键点的平均检测置信度。低于 0.40 时姿态特征会被视为不可靠。"
+              help="表示系统对鼻子、双耳和双肩等关键点的识别可靠程度。数值越高，姿态数据越可信；数值过低时可能受遮挡、光线或拍摄距离影响，低于 0.40 时不宜参考。"
               :value="features.kpt_visibility"
               :digits="3"
             />
@@ -490,13 +449,13 @@
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Aim, QuestionFilled, Refresh, VideoCamera } from '@element-plus/icons-vue'
 import { ElMessage, ElTooltip } from 'element-plus'
-import request from '@/utils/request'
+import CameraSwitcher from '@/components/CameraSwitcher/index.vue'
+import useCameraStore from '@/store/modules/camera'
+import { cameraQueryString } from '@/utils/camera'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
+const cameraStore = useCameraStore()
 
-const cameraSource = ref('local')
-const xiaozhiDevice = ref('')
-const devices = ref([])
 const streamKey = ref(0)
 const videoState = ref('connecting')
 const videoAspectRatio = ref('4 / 3')
@@ -533,13 +492,7 @@ const emptyResult = () => ({
 
 const result = ref(emptyResult())
 
-const sourceQuery = computed(() => {
-  const params = new URLSearchParams({ source: cameraSource.value })
-  if (cameraSource.value === 'xiaozhi' && xiaozhiDevice.value) {
-    params.set('device_id', xiaozhiDevice.value)
-  }
-  return params.toString()
-})
+const sourceQuery = computed(() => cameraQueryString(cameraStore.cameraId))
 
 const videoStreamUrl = computed(
   () => `${baseURL}/fatigue/feed?${sourceQuery.value}` +
@@ -547,13 +500,7 @@ const videoStreamUrl = computed(
     `&stream=${streamKey.value}`
 )
 
-const cameraLabel = computed(() => {
-  if (cameraSource.value === 'local') return '本机摄像头'
-  if (cameraSource.value === 'rtsp') return '海康 RTSP'
-  if (!xiaozhiDevice.value) return '小智摄像头'
-  const selected = devices.value.find(item => item.device_id === xiaozhiDevice.value)
-  return selected?.name || '小智摄像头'
-})
+const cameraLabel = computed(() => cameraStore.cameraLabel)
 
 const lastStep = computed(() => result.value.last_step)
 const features = computed(() => lastStep.value?.features || {})
@@ -653,23 +600,6 @@ function toggleDetectionBoxes() {
   streamKey.value += 1
 }
 
-async function loadDevices() {
-  try {
-    const data = await request({
-      url: '/video/xiaozhi/devices',
-      method: 'get',
-      timeout: 20000
-    })
-    devices.value = data.devices || []
-    if (cameraSource.value === 'xiaozhi' && !xiaozhiDevice.value) {
-      const online = devices.value.find(device => device.online)
-      if (online) xiaozhiDevice.value = online.device_id
-    }
-  } catch {
-    devices.value = []
-  }
-}
-
 async function fetchResults() {
   try {
     const response = await fetch(
@@ -731,7 +661,6 @@ function onVideoError() {
 }
 
 let pollTimer = null
-let deviceTimer = null
 let sourceWatchReady = false
 
 function startPolling() {
@@ -755,7 +684,7 @@ function handleVisibilityChange() {
   }
 }
 
-watch([cameraSource, xiaozhiDevice], async () => {
+watch(() => cameraStore.cameraId, async () => {
   if (!sourceWatchReady) return
   stopPolling()
   result.value = emptyResult()
@@ -767,18 +696,18 @@ watch([cameraSource, xiaozhiDevice], async () => {
 })
 
 onMounted(async () => {
-  await loadDevices()
+  try {
+    await cameraStore.loadXiaozhiDevices()
+  } catch {
+    // The camera control displays the device-list failure.
+  }
   sourceWatchReady = true
   startPolling()
-  deviceTimer = setInterval(() => {
-    if (cameraSource.value === 'xiaozhi') loadDevices()
-  }, 5000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
   stopPolling()
-  clearInterval(deviceTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
@@ -821,12 +750,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.source-select {
-  width: 150px;
-}
-.source-select--device {
-  width: 220px;
 }
 .connection-line {
   display: flex;
@@ -1532,10 +1455,6 @@ onBeforeUnmount(() => {
   }
   .page-intro h1 {
     font-size: 26px;
-  }
-  .source-select,
-  .source-select--device {
-    width: 100%;
   }
   .detail-grid {
     grid-template-columns: 1fr;

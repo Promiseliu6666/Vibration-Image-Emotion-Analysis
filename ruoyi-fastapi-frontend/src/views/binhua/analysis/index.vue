@@ -82,12 +82,22 @@
         </el-form-item>
 
         <el-form-item label="视频来源">
-          <el-input
+          <el-select
             v-model="queryParams.source"
-            placeholder="输入视频来源（支持模糊）"
+            placeholder="选择或输入视频来源"
             clearable
+            filterable
+            allow-create
+            default-first-option
             style="width: 180px"
-          />
+          >
+            <el-option
+              v-for="option in cameraFilterOptions"
+              :key="option.id"
+              :label="option.label"
+              :value="option.id"
+            />
+          </el-select>
         </el-form-item>
 
         <el-form-item label="创建时间">
@@ -249,7 +259,21 @@
     >
       <el-form ref="analysisFormRef" :model="formData" :rules="rules" label-width="110px">
         <el-form-item label="视频来源" prop="source">
-          <el-input v-model="formData.source" placeholder="请输入视频来源" />
+          <el-select
+            v-model="formData.source"
+            placeholder="选择或输入视频来源"
+            filterable
+            allow-create
+            default-first-option
+            style="width: 100%"
+          >
+            <el-option
+              v-for="option in cameraFilterOptions"
+              :key="option.id"
+              :label="option.label"
+              :value="option.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="人名" prop="personName">
           <el-input v-model="formData.personName" placeholder="请输入人名" />
@@ -459,12 +483,22 @@
         </el-form-item>
 
         <el-form-item label="视频来源">
-          <el-input
+          <el-select
             v-model="queryParamsExport.source"
-            placeholder="输入视频来源（支持模糊）"
+            placeholder="选择或输入视频来源"
             clearable
+            filterable
+            allow-create
+            default-first-option
             style="width: 180px"
-          />
+          >
+            <el-option
+              v-for="option in cameraFilterOptions"
+              :key="option.id"
+              :label="option.label"
+              :value="option.id"
+            />
+          </el-select>
         </el-form-item>
 
         <el-form-item label="创建时间">
@@ -522,6 +556,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import { Sunny, Timer } from '@element-plus/icons-vue'
+import useCameraStore from '@/store/modules/camera'
 import {
   listAnalysis,
   getAnalysis,
@@ -535,6 +570,7 @@ import {
 } from '@/api/binhua/analysis'
 
 const router = useRouter()
+const cameraStore = useCameraStore()
 
 const queryParams = ref({
   personId: null,
@@ -552,6 +588,10 @@ const loading = ref(false)
 const exportLoading = ref(false)
 const multipleSelection = ref([])
 const personNameOptions = ref([])
+const cameraFilterOptions = computed(() => cameraStore.cameraOptions.map(option => ({
+  id: option.id,
+  label: `${option.label}${option.detail ? ` · ${option.detail}` : ''}`
+})))
 const singleSelection = ref(false)
 const currentReportRow = ref(null)
 
@@ -570,7 +610,7 @@ const formData = ref({
 const analysisFormRef = ref(null)
 
 const rules = {
-  source: [{ required: true, message: '请输入视频来源', trigger: 'blur' }],
+  source: [{ required: true, message: '请选择或输入视频来源', trigger: 'change' }],
   personName: [{ required: true, message: '请输入人名', trigger: 'blur' }],
   personId: [{ required: true, message: '请输入人员ID', trigger: 'blur' }],
   happinessIndex: [{ required: true, message: '请输入幸福指数', trigger: 'blur' }],
@@ -1032,11 +1072,16 @@ watch(analysisList, async () => {
   }
 }, { deep: true })
 
-onMounted(() => {
+onMounted(async () => {
   initCharts()
   window.addEventListener('resize', resizeHandler)
   loadAllPersonNames()
   getList()
+  try {
+    await cameraStore.loadXiaozhiDevices()
+  } catch {
+    // Historical filtering still accepts manually entered source values.
+  }
 })
 
 onUnmounted(() => {

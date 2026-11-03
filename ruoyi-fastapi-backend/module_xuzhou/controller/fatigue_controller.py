@@ -9,6 +9,8 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 
+from hik_vision.camera_contract import resolve_camera_selection
+
 fatigue_controller = APIRouter(prefix="/fatigue", tags=["疲劳检测"])
 
 FATIGUE_SERVICE_URL = os.getenv(
@@ -38,6 +40,18 @@ async def _forward(path: str, params: dict[str, str]) -> Response:
     )
 
 
+def _camera_params(
+    camera_id: str,
+    source: str,
+    device_id: str,
+) -> dict[str, str]:
+    try:
+        selection = resolve_camera_selection(camera_id, source, device_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return selection.legacy_params()
+
+
 @fatigue_controller.get("/status")
 async def get_fatigue_status() -> Response:
     return await _forward("/health", {})
@@ -45,28 +59,30 @@ async def get_fatigue_status() -> Response:
 
 @fatigue_controller.get("/results")
 async def get_fatigue_results(
+    camera_id: str = Query(default=""),
     source: str = Query(default="local"),
     device_id: str = Query(default=""),
 ) -> Response:
     return await _forward(
         "/results",
-        {"source": source, "device_id": device_id},
+        _camera_params(camera_id, source, device_id),
     )
 
 
 @fatigue_controller.get("/feed")
 async def get_fatigue_feed(
+    camera_id: str = Query(default=""),
     source: str = Query(default="local"),
     device_id: str = Query(default=""),
     show_boxes: int = Query(default=0, ge=0, le=1),
 ) -> Response:
+    camera_params = _camera_params(camera_id, source, device_id)
     client = httpx.AsyncClient(trust_env=False, timeout=None)
     request = client.build_request(
         "GET",
         f"{FATIGUE_SERVICE_URL}/feed",
         params={
-            "source": source,
-            "device_id": device_id,
+            **camera_params,
             "show_boxes": str(show_boxes),
         },
     )
@@ -113,6 +129,7 @@ async def get_fatigue_feed(
 
 @fatigue_controller.post("/reset")
 async def reset_fatigue_results(
+    camera_id: str = Query(default=""),
     source: str = Query(default="local"),
     device_id: str = Query(default=""),
 ) -> Response:
@@ -120,7 +137,7 @@ async def reset_fatigue_results(
         async with httpx.AsyncClient(trust_env=False, timeout=35.0) as client:
             upstream = await client.post(
                 f"{FATIGUE_SERVICE_URL}/reset",
-                params={"source": source, "device_id": device_id},
+                params=_camera_params(camera_id, source, device_id),
             )
     except httpx.HTTPError as exc:
         raise HTTPException(

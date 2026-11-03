@@ -359,6 +359,7 @@ class AnalysisSession(threading.Thread):
             "ok": True,
             "status": "starting",
             "message": "正在加载疲劳检测模型",
+            "camera_id": _to_camera_id(source, device_id),
             "source": source,
             "device_id": device_id,
             "face_detected": False,
@@ -548,6 +549,36 @@ def _validate_camera_args(source: str, device_id: str) -> None:
         raise ValueError("小智设备编号格式不正确")
 
 
+def _to_camera_id(source: str, device_id: str = "") -> str:
+    if source != "xiaozhi":
+        return source
+    return f"xiaozhi:{device_id}" if device_id else "xiaozhi"
+
+
+def _camera_args_from_query(query: dict[str, list[str]]) -> tuple[str, str]:
+    camera_id = query.get("camera_id", [""])[0].strip()
+    if camera_id:
+        if camera_id in {"local", "local:0"}:
+            source, device_id = "local", ""
+        elif camera_id in {"rtsp", "rtsp:default"}:
+            source, device_id = "rtsp", ""
+        elif camera_id == "xiaozhi":
+            source, device_id = "xiaozhi", ""
+        elif camera_id.startswith("xiaozhi:"):
+            source, device_id = "xiaozhi", camera_id.split(":", 1)[1]
+            if not device_id:
+                raise ValueError("小智设备编号格式不正确")
+        else:
+            raise ValueError(
+                "camera_id 必须是 local、rtsp、xiaozhi 或 xiaozhi:<设备ID>"
+            )
+    else:
+        source = query.get("source", ["local"])[0]
+        device_id = query.get("device_id", [""])[0]
+    _validate_camera_args(source, device_id)
+    return source, device_id
+
+
 def _load_bridge_secret() -> str:
     configured = os.getenv("CAMERA_BRIDGE_KEY", "").strip()
     if configured:
@@ -706,13 +737,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"ok": True, "service": "fatigue"})
                 return
             if parsed.path == "/results":
-                source = query.get("source", ["local"])[0]
-                device_id = query.get("device_id", [""])[0]
+                source, device_id = _camera_args_from_query(query)
                 self._json(200, self.manager.results(source, device_id))
                 return
             if parsed.path == "/feed":
-                source = query.get("source", ["local"])[0]
-                device_id = query.get("device_id", [""])[0]
+                source, device_id = _camera_args_from_query(query)
                 show_boxes = query.get("show_boxes", ["0"])[0] == "1"
                 self._stream_feed(source, device_id, show_boxes)
                 return
@@ -729,8 +758,7 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path != "/reset":
                 self._json(404, {"ok": False, "message": "接口不存在"})
                 return
-            source = query.get("source", ["local"])[0]
-            device_id = query.get("device_id", [""])[0]
+            source, device_id = _camera_args_from_query(query)
             self._json(200, self.manager.reset(source, device_id))
         except ValueError as exc:
             self._json(400, {"ok": False, "message": str(exc)})

@@ -5,12 +5,7 @@
       <h2>视频监测</h2>
       <div class="controls">
         <div class="control-group">
-          <label>摄像头：</label>
-          <el-select v-model="cameraSource" size="small" style="width: 160px">
-            <el-option label="小智摄像头" value="xiaozhi" />
-            <el-option label="本机摄像头" value="local" />
-            <el-option label="海康RTSP摄像头" value="rtsp" />
-          </el-select>
+          <CameraSwitcher size="small" compact />
         </div>
 <div class="control-group">
           <el-button
@@ -29,9 +24,6 @@
     <div v-if="cameraSource==='xiaozhi'" class="xiaozhi-source-bar">
       <span>小智设备</span>
       <el-checkbox v-model="parallelPreview">并行预览</el-checkbox>
-      <el-select v-model="xiaozhiDevice" placeholder="自动选择在线设备" clearable style="width:220px" @visible-change="open=>open&&loadXiaozhiDevices()">
-        <el-option v-for="device in xiaozhiDevices" :key="device.device_id" :value="device.device_id" :label="device.name+(device.online?' · 在线':' · 未出图')"/>
-      </el-select>
       <span>{{ xiaozhiSourceError || '仅使用小智原始画面，不会切换为本机摄像头' }}</span>
       <router-link to="/xiaozhi/devices">管理小智设备</router-link>
     </div>
@@ -284,31 +276,29 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted } from 'v
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import { Message, Refresh, User } from '@element-plus/icons-vue'
+import CameraSwitcher from '@/components/CameraSwitcher/index.vue'
+import useCameraStore from '@/store/modules/camera'
+import { cameraQueryString, toCameraId } from '@/utils/camera'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
+const cameraStore = useCameraStore()
 
 // ==================== 状态管理 ====================
-const cameraSource = ref('xiaozhi')
-const xiaozhiDevice=ref('')
-const parallelPreview=ref(false)
-const deviceStreamUrl=id=>`${baseURL}/video/feed/analysis?source=xiaozhi&device_id=${encodeURIComponent(id)}`
-let cameraStatusTimer=null
-const xiaozhiDevices=ref([])
-const xiaozhiSourceError=ref('')
-const sourceQuery=computed(()=>cameraSource.value==='xiaozhi'
-  ? `source=xiaozhi&device_id=${encodeURIComponent(xiaozhiDevice.value)}`
-  : `source=${cameraSource.value}`)
-let xiaozhiDevicesLoading=false
-async function loadXiaozhiDevices(){
- if(xiaozhiDevicesLoading)return
- xiaozhiDevicesLoading=true
- try{const d=await request({url:'/video/xiaozhi/devices',method:'get',timeout:20000});xiaozhiDevices.value=d.devices||[];if(!xiaozhiDevice.value&&xiaozhiDevices.value.some(x=>x.online))xiaozhiDevice.value=xiaozhiDevices.value.find(x=>x.online).device_id;xiaozhiSourceError.value=xiaozhiDevices.value.length?'':'尚未连接小智设备，请到设备管理接入'}
- catch(e){xiaozhiSourceError.value='小智服务未连接，请检查设备管理'}
- finally{xiaozhiDevicesLoading=false}
-}
-watch(xiaozhiDevice,()=>{clearResults();videoStatus.value='connecting';statusText.value='正在连接所选设备…';showConnectionTip.value=false;reconnectAttempts.value=0})
-onMounted(()=>{loadXiaozhiDevices();cameraStatusTimer=setInterval(()=>{if(cameraSource.value==='xiaozhi')loadXiaozhiDevices()},4000)})
-onBeforeUnmount(()=>clearInterval(cameraStatusTimer))
+const parallelPreview = ref(false)
+const cameraSource = computed(() => cameraStore.source)
+const xiaozhiDevice = computed({
+  get: () => cameraStore.xiaozhiDeviceId,
+  set: deviceId => cameraStore.selectCamera(toCameraId('xiaozhi', deviceId))
+})
+const xiaozhiDevices = computed(() => cameraStore.xiaozhiDevices)
+const xiaozhiSourceError = computed(() => {
+  if (cameraStore.deviceError) return cameraStore.deviceError
+  return cameraStore.xiaozhiDevices.length ? '' : '尚未连接小智设备，请到设备管理接入'
+})
+const deviceStreamUrl = deviceId => (
+  `${baseURL}/video/feed/analysis?${cameraQueryString(toCameraId('xiaozhi', deviceId))}`
+)
+const sourceQuery = computed(() => cameraQueryString(cameraStore.cameraId))
 const videoStatus = ref('connecting')
 const statusText = ref('连接中...')
 const showConnectionTip = ref(false)
@@ -616,25 +606,30 @@ const resetParams = async () => {
 }
 
 // ==================== 摄像头切换 ====================
-watch(cameraSource, async (newVal, oldVal) => {
-  if (oldVal && oldVal !== newVal) {
-    if (videoImg.value) videoImg.value.removeAttribute('src')
-    stopPolling()
-    shouldPolling.value = false
-    clearResults()
-    isAnalyzing.value = false
-    analysisCompleted.value = false
-    videoStatus.value = 'connecting'
+let cameraWatchReady = false
+watch(() => cameraStore.cameraId, async (newId, oldId) => {
+  if (!cameraWatchReady || !oldId || oldId === newId) return
 
-    try {
-      await fetch(`${baseURL}/video/reset?source=${oldVal}`)
-    } catch (e) {
-      console.warn('重置旧摄像头源失败', e)
-    }
+  if (videoImg.value) videoImg.value.removeAttribute('src')
+  stopPolling()
+  shouldPolling.value = false
+  clearResults()
+  isAnalyzing.value = false
+  analysisCompleted.value = false
+  videoStatus.value = 'connecting'
+  statusText.value = '正在连接所选摄像头…'
+  showConnectionTip.value = false
+  reconnectAttempts.value = 0
 
-    await new Promise(resolve => setTimeout(resolve, 500))
+  try {
+    await fetch(
+      `${baseURL}/video/reset?${cameraQueryString(oldId)}`
+    )
+  } catch (e) {
+    console.warn('重置旧摄像头源失败', e)
   }
 
+  await new Promise(resolve => setTimeout(resolve, 300))
   shouldPolling.value = true
   startPolling()
 })
@@ -647,7 +642,13 @@ const getLevelClass = (value) => {
 }
 
 // ==================== 生命周期 ====================
-onMounted(() => {
+onMounted(async () => {
+  try {
+    await cameraStore.loadXiaozhiDevices()
+  } catch {
+    // The camera control displays the device-list failure.
+  }
+  cameraWatchReady = true
   startPolling()
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
@@ -656,7 +657,6 @@ onBeforeUnmount(() => {
   stopPolling()
   shouldPolling.value = false
   if (videoImg.value) videoImg.value.src = ''
-  fetch(`${baseURL}/video/reset?${sourceQuery.value}`).catch(() => {})
 })
 
 onUnmounted(() => {
