@@ -68,7 +68,7 @@
           <img
             ref="videoImg"
             :src="videoStreamUrl"
-            :key="cameraSource+xiaozhiDevice"
+            :key="cameraSource+xiaozhiDevice+streamKey"
             alt="实时视频流"
             class="video-stream"
             @load="onVideoLoad"
@@ -272,7 +272,16 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, onUnmounted } from 'vue'
+import {
+  ref,
+  computed,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  onUnmounted,
+  onActivated,
+  onDeactivated
+} from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import { Message, Refresh, User } from '@element-plus/icons-vue'
@@ -299,6 +308,7 @@ const deviceStreamUrl = deviceId => (
   `${baseURL}/video/feed/analysis?${cameraQueryString(toCameraId('xiaozhi', deviceId))}`
 )
 const sourceQuery = computed(() => cameraQueryString(cameraStore.cameraId))
+const streamKey = ref(0)
 const videoStatus = ref('connecting')
 const statusText = ref('连接中...')
 const showConnectionTip = ref(false)
@@ -399,7 +409,7 @@ const numberFormat = (value) => {
 // ==================== 视频流URL ====================
 const videoStreamUrl = computed(() => {
   const timestamp = new Date().getTime()
-  return `${baseURL}/video/feed/analysis?${sourceQuery.value}&t=${timestamp}`
+  return `${baseURL}/video/feed/analysis?${sourceQuery.value}&t=${timestamp}&stream=${streamKey.value}`
 })
 
 // ==================== 幸福指数计算（与后端同步）====================
@@ -607,7 +617,7 @@ const resetParams = async () => {
 
 // ==================== 摄像头切换 ====================
 let cameraWatchReady = false
-watch(() => cameraStore.cameraId, async (newId, oldId) => {
+watch(() => cameraStore.cameraId, (newId, oldId) => {
   if (!cameraWatchReady || !oldId || oldId === newId) return
 
   if (videoImg.value) videoImg.value.removeAttribute('src')
@@ -621,15 +631,6 @@ watch(() => cameraStore.cameraId, async (newId, oldId) => {
   showConnectionTip.value = false
   reconnectAttempts.value = 0
 
-  try {
-    await fetch(
-      `${baseURL}/video/reset?${cameraQueryString(oldId)}`
-    )
-  } catch (e) {
-    console.warn('重置旧摄像头源失败', e)
-  }
-
-  await new Promise(resolve => setTimeout(resolve, 300))
   shouldPolling.value = true
   startPolling()
 })
@@ -651,6 +652,21 @@ onMounted(async () => {
   cameraWatchReady = true
   startPolling()
   document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onActivated(() => {
+  streamKey.value += 1
+  videoStatus.value = 'connecting'
+  statusText.value = '正在恢复摄像头连接…'
+  shouldPolling.value = true
+  startPolling()
+})
+
+onDeactivated(() => {
+  stopPolling()
+  shouldPolling.value = false
+  if (videoImg.value) videoImg.value.src = ''
+  streamKey.value += 1
 })
 
 onBeforeUnmount(() => {

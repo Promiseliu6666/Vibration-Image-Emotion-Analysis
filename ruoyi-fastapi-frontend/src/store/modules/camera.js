@@ -107,7 +107,7 @@ const useCameraStore = defineStore('camera', {
       }
       return normalizedId
     },
-    async loadXiaozhiDevices(force = false) {
+    async loadXiaozhiDevices(force = false, quiet = false) {
       const cacheIsFresh = (
         this.devicesLoaded
         && Date.now() - this.lastDeviceSync < DEVICE_CACHE_MS
@@ -117,7 +117,7 @@ const useCameraStore = defineStore('camera', {
 
       this.loadingDevices = true
       this.deviceError = ''
-      devicesRequest = listCameras()
+      devicesRequest = listCameras({ silent: quiet })
         .then(response => {
           this.cameraCatalog = Array.isArray(response?.cameras)
             ? response.cameras

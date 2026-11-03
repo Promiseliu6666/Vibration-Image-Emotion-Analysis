@@ -89,6 +89,16 @@ def _status_label(score: float | None) -> str:
     return "清醒"
 
 
+def _fatigue_score(score: float | None) -> float | None:
+    return None if score is None else 1.0 - score
+
+
+def _fatigue_status(score: float | None) -> str:
+    # The source score is wakefulness-focused. Its labels already map to the
+    # inverse fatigue bands, so converting the score again would invert twice.
+    return _status_label(score)
+
+
 def _mean_pose_confidence(kpts: np.ndarray | None) -> float | None:
     if kpts is None or not kpts.size:
         return None
@@ -151,6 +161,7 @@ class FatigueRuntime:
 
     def __init__(self) -> None:
         self.device = _resolve_device()
+        self._inference_lock = threading.Lock()
         print(f"[fatigue-service] device={self.device}", flush=True)
         self.cropper = RegionCropper(
             resolve_asset(LANDMARKER_PATH),
@@ -178,7 +189,8 @@ class FatigueRuntime:
         print("[fatigue-service] all models loaded", flush=True)
 
     def new_session(self) -> "FatigueSessionState":
-        self.cropper.reset(fps=TARGET_FPS)
+        with self._inference_lock:
+            self.cropper.reset(fps=TARGET_FPS)
         return FatigueSessionState(
             aggregator=FeatureAggregator(
                 fps=TARGET_FPS,
@@ -189,6 +201,14 @@ class FatigueRuntime:
         )
 
     def process_frame(
+        self,
+        frame: np.ndarray,
+        session: "FatigueSessionState",
+    ) -> dict:
+        with self._inference_lock:
+            return self._process_frame_locked(frame, session)
+
+    def _process_frame_locked(
         self,
         frame: np.ndarray,
         session: "FatigueSessionState",
@@ -271,6 +291,9 @@ class FatigueRuntime:
             "score_raw": session.score_raw,
             "score_ema": session.score_ema,
             "score_status": _status_label(session.score_ema),
+            "fatigue_score_raw": _fatigue_score(session.score_raw),
+            "fatigue_score": _fatigue_score(session.score_ema),
+            "fatigue_status": _fatigue_status(session.score_ema),
             "blink_total": session.aggregator.blink_total,
             "yawn_total": session.aggregator.yawn_total,
             "is_blinking": session.aggregator.is_blinking,
@@ -355,6 +378,7 @@ class AnalysisSession(threading.Thread):
         self._latest_frame: np.ndarray | None = None
         self._latest_payload: dict | None = None
         self._frame_sequence = 0
+        self._analysis_frame_published = False
         self._payload = {
             "ok": True,
             "status": "starting",
@@ -368,6 +392,9 @@ class AnalysisSession(threading.Thread):
             "score_raw": None,
             "score_ema": None,
             "score_status": "预热中",
+            "fatigue_score_raw": None,
+            "fatigue_score": None,
+            "fatigue_status": "预热中",
             "warmup_progress": 0,
             "warmup_target": self.state.aggregator.sub_window_frames,
             "feature_buffer": 0,
@@ -421,6 +448,8 @@ class AnalysisSession(threading.Thread):
                     timeout=5,
                 )
                 response.raise_for_status()
+                if self._stop_event.is_set():
+                    return
                 image = cv2.imdecode(
                     np.frombuffer(response.content, dtype=np.uint8),
                     cv2.IMREAD_COLOR,
@@ -428,6 +457,7 @@ class AnalysisSession(threading.Thread):
                 if image is None:
                     raise RuntimeError("摄像头返回的画面无法解码")
 
+                self._publish_initial_frame(image)
                 self.state.frames_seen += 1
                 payload = self.runtime.process_frame(image, self.state)
                 payload.update(
@@ -458,8 +488,17 @@ class AnalysisSession(threading.Thread):
         with self._lock:
             self._payload.update(values)
 
+    def _publish_initial_frame(self, frame: np.ndarray) -> None:
+        with self._lock:
+            if self._analysis_frame_published:
+                return
+            self._frame_sequence += 1
+            self._latest_frame = frame.copy()
+            self._latest_payload = copy.deepcopy(self._payload)
+
     def _update_frame(self, payload: dict, frame: np.ndarray) -> None:
         with self._lock:
+            self._analysis_frame_published = True
             self._frame_sequence += 1
             self._latest_frame = frame.copy()
             self._latest_payload = copy.deepcopy(payload)
@@ -480,12 +519,16 @@ class SessionManager:
         self._runtime_lock = threading.Lock()
         self._session: AnalysisSession | None = None
         self._session_lock = threading.Lock()
+        self._retired_sessions: list[AnalysisSession] = []
 
     def _get_runtime(self) -> FatigueRuntime:
         with self._runtime_lock:
             if self._runtime is None:
                 self._runtime = FatigueRuntime()
             return self._runtime
+
+    def warmup(self) -> None:
+        self._get_runtime()
 
     def results(self, source: str, device_id: str = "") -> dict:
         _validate_camera_args(source, device_id)
@@ -506,18 +549,50 @@ class SessionManager:
     def reset(self, source: str, device_id: str = "") -> dict:
         _validate_camera_args(source, device_id)
         with self._session_lock:
-            if self._session is not None:
-                self._session.stop()
-                self._session.join(timeout=5.0)
-                self._session = None
-        return self.results(source, device_id)
+            session = self._replace_session(source, device_id)
+        return session.snapshot()
 
     def close(self) -> None:
         with self._session_lock:
-            if self._session is not None:
-                self._session.stop()
-                self._session.join(timeout=5.0)
-                self._session = None
+            sessions = [self._session, *self._retired_sessions]
+            self._session = None
+            self._retired_sessions = []
+        for session in sessions:
+            if session is not None:
+                session.stop()
+        for session in sessions:
+            if session is not None and session.is_alive():
+                session.join(timeout=1.0)
+
+    def _retire_session(self, session: AnalysisSession) -> None:
+        session.stop()
+        self._retired_sessions = [
+            retired
+            for retired in self._retired_sessions
+            if retired.is_alive()
+        ]
+        self._retired_sessions.append(session)
+        if len(self._retired_sessions) > 8:
+            self._retired_sessions.pop(0)
+
+    def _replace_session(
+        self,
+        source: str,
+        device_id: str,
+    ) -> AnalysisSession:
+        if self._session is not None:
+            self._retire_session(self._session)
+        runtime = self._get_runtime()
+        self._session = AnalysisSession(
+            runtime=runtime,
+            source=source,
+            device_id=device_id,
+            bridge_url=self.bridge_url,
+            bridge_secret=self.bridge_secret,
+            session_state=runtime.new_session(),
+        )
+        self._session.start()
+        return self._session
 
     def _ensure_session(self, source: str, device_id: str) -> AnalysisSession:
         key = f"{source}:{device_id}"
@@ -526,19 +601,7 @@ class SessionManager:
             or self._session.name != f"fatigue-{key}"
             or not self._session.is_alive()
         ):
-            if self._session is not None:
-                self._session.stop()
-                self._session.join(timeout=5.0)
-            runtime = self._get_runtime()
-            self._session = AnalysisSession(
-                runtime=runtime,
-                source=source,
-                device_id=device_id,
-                bridge_url=self.bridge_url,
-                bridge_secret=self.bridge_secret,
-                session_state=runtime.new_session(),
-            )
-            self._session.start()
+            self._replace_session(source, device_id)
         return self._session
 
 
@@ -876,6 +939,8 @@ def main() -> None:
         bridge_url=bridge_url,
         bridge_secret=_load_bridge_secret(),
     )
+    print("[fatigue-service] preloading models", flush=True)
+    manager.warmup()
     Handler.manager = manager
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(

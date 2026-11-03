@@ -4,7 +4,7 @@
       <div class="page-intro__copy">
         <span class="page-intro__eyebrow">BEHAVIOUR SIGNAL</span>
         <h1>疲劳检测</h1>
-        <p>根据表情与姿态变化评估当前专注度，数据约每秒更新一次。</p>
+        <p>根据眼口状态与姿态变化评估当前疲劳度，数据约每秒更新一次。</p>
       </div>
       <div class="page-intro__controls">
         <CameraSwitcher />
@@ -30,8 +30,9 @@
             :style="{ aspectRatio: videoAspectRatio }"
           >
           <img
-            :key="streamKey"
-            :src="videoStreamUrl"
+            ref="videoImg"
+            :key="`${cameraStore.cameraId}-${showBoxes}-${streamKey}`"
+            :src="displayVideoStreamUrl"
             alt="疲劳检测实时视频"
             @load="onVideoLoad"
             @error="onVideoError"
@@ -62,7 +63,7 @@
           </div>
           </div>
           <div class="video-note">
-            专注度是行为趋势提示，不替代医学疲劳评估。若长时间显示“无效”，请检查光线、面部遮挡和人物距离。
+            疲劳度是行为趋势提示，不替代医学疲劳评估。若长时间显示“无效”，请检查光线、面部遮挡和人物距离。
           </div>
         </main>
 
@@ -116,11 +117,11 @@
       <aside class="focus-panel" aria-label="疲劳检测结论">
         <header class="panel-heading">
           <div>
-            <span class="panel-kicker">FOCUS INDEX</span>
+            <span class="panel-kicker">FATIGUE INDEX</span>
             <h2 class="panel-title">
-              专注度
+              疲劳度
               <el-tooltip
-                content="表示系统根据最近约 30 秒的眨眼、哈欠和姿态给出的清醒程度估计。数值越高，表示越清醒、越专注；数值越低，表示疲劳倾向越明显。"
+                content="表示系统根据最近约 30 秒的眨眼、哈欠和姿态给出的疲劳程度估计。数值越高，表示疲劳倾向越明显；数值越低，表示当前越清醒。"
                 placement="top"
               >
                 <QuestionFilled class="metric-help" tabindex="0" />
@@ -144,25 +145,25 @@
             <span class="score-label">
               原始值
               <el-tooltip
-                content="表示当前时刻的即时专注度估计。数值越高越清醒，越低越疲劳；其短期波动较明显。"
+                content="表示当前时刻的即时疲劳度估计。数值越高表示越疲劳，越低表示越清醒；其短期波动较明显。"
                 placement="top"
               >
                 <QuestionFilled class="metric-help" tabindex="0" />
               </el-tooltip>
             </span>
-            <strong>{{ formatNumber(result.score_raw, 2) }}</strong>
+            <strong>{{ formatNumber(fatigueScoreRaw, 2) }}</strong>
           </div>
           <div>
             <span class="score-label">
               平滑值
               <el-tooltip
-                content="由当前估计与历史结果加权得到，用于降低分数的短期波动。"
+                content="由当前疲劳度与历史结果加权得到，用于降低分数的短期波动。数值越高表示疲劳倾向越明显，越低表示越清醒。"
                 placement="top"
               >
                 <QuestionFilled class="metric-help" tabindex="0" />
               </el-tooltip>
             </span>
-            <strong>{{ formatNumber(result.score_ema, 2) }}</strong>
+            <strong>{{ formatNumber(fatigueScore, 2) }}</strong>
           </div>
         </div>
 
@@ -182,7 +183,7 @@
           <div class="warmup-track">
             <span :style="{ width: `${featurePercent}%` }"></span>
           </div>
-          <p v-if="result.score_ema == null">
+          <p v-if="fatigueScore == null">
             {{ warmupHint }}
           </p>
           <p v-else>已进入实时评分阶段</p>
@@ -216,9 +217,9 @@
         </section>
 
         <div class="score-legend">
-          <span><i class="legend-dot legend-dot--red"></i>低于 0.30 疲劳</span>
-          <span><i class="legend-dot legend-dot--orange"></i>0.30—0.55 困倦</span>
-          <span><i class="legend-dot legend-dot--green"></i>高于 0.55 清醒</span>
+          <span><i class="legend-dot legend-dot--green"></i>低于 0.45 清醒</span>
+          <span><i class="legend-dot legend-dot--orange"></i>0.45—0.70 困倦</span>
+          <span><i class="legend-dot legend-dot--red"></i>高于 0.70 疲劳</span>
         </div>
       </aside>
     </div>
@@ -283,7 +284,7 @@
           <div class="metric-list">
             <MetricRow
               label="时序运算速度"
-              help="表示专注度模型每秒可完成的计算次数。数值越高，评分更新越及时；该指标不等同于画面帧率。"
+              help="表示疲劳度模型每秒可完成的计算次数。数值越高，评分更新越及时；该指标不等同于画面帧率。"
               :value="result.temporal_fps"
               :digits="1"
               suffix="FPS"
@@ -455,6 +456,7 @@ import { cameraQueryString } from '@/utils/camera'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
 const cameraStore = useCameraStore()
+const videoImg = ref(null)
 
 const streamKey = ref(0)
 const videoState = ref('connecting')
@@ -486,6 +488,9 @@ const emptyResult = () => ({
   score_raw: null,
   score_ema: null,
   score_status: '预热中',
+  fatigue_score_raw: null,
+  fatigue_score: null,
+  fatigue_status: '预热中',
   blink_total: 0,
   yawn_total: 0
 })
@@ -499,30 +504,52 @@ const videoStreamUrl = computed(
     `&show_boxes=${showBoxes.value ? 1 : 0}` +
     `&stream=${streamKey.value}`
 )
+const rawVideoStreamUrl = computed(
+  () => `${baseURL}/video/feed/raw?${sourceQuery.value}` +
+    `&stream=${streamKey.value}`
+)
+const displayVideoStreamUrl = computed(
+  () => showBoxes.value ? videoStreamUrl.value : rawVideoStreamUrl.value
+)
 
 const cameraLabel = computed(() => cameraStore.cameraLabel)
 
 const lastStep = computed(() => result.value.last_step)
 const features = computed(() => lastStep.value?.features || {})
 
+function toFatigueScore(value) {
+  if (value == null || value === '') return null
+  const score = Number(value)
+  return Number.isFinite(score) ? 1 - score : null
+}
+
+const fatigueScoreRaw = computed(() => (
+  result.value.fatigue_score_raw
+  ?? toFatigueScore(result.value.score_raw)
+))
+const fatigueScore = computed(() => (
+  result.value.fatigue_score
+  ?? toFatigueScore(result.value.score_ema)
+))
+
 const scoreTone = computed(() => {
-  const score = result.value.score_ema
+  const score = fatigueScore.value
   if (score == null) return 'wait'
-  if (score < 0.30) return 'fatigued'
-  if (score < 0.55) return 'drowsy'
+  if (score > 0.70) return 'fatigued'
+  if (score >= 0.45) return 'drowsy'
   return 'alert'
 })
 
-const scoreStatus = computed(() => result.value.score_status || {
+const scoreStatus = computed(() => result.value.fatigue_status || {
   wait: '预热中',
   fatigued: '疲劳',
   drowsy: '困倦',
   alert: '清醒'
 }[scoreTone.value])
 
-const scoreText = computed(() => formatNumber(result.value.score_ema, 2, '--'))
+const scoreText = computed(() => formatNumber(fatigueScore.value, 2, '--'))
 const scorePercent = computed(() => {
-  const score = Number(result.value.score_ema)
+  const score = Number(fatigueScore.value)
   return Number.isFinite(score) ? Math.max(0, Math.min(100, score * 100)) : 0
 })
 const featurePercent = computed(() => {
@@ -666,7 +693,7 @@ let sourceWatchReady = false
 function startPolling() {
   stopPolling()
   fetchResults()
-  pollTimer = setInterval(fetchResults, 800)
+  pollTimer = setInterval(fetchResults, 1200)
 }
 
 function stopPolling() {
@@ -684,14 +711,13 @@ function handleVisibilityChange() {
   }
 }
 
-watch(() => cameraStore.cameraId, async () => {
+watch(() => cameraStore.cameraId, () => {
   if (!sourceWatchReady) return
   stopPolling()
   result.value = emptyResult()
   serviceError.value = ''
   videoState.value = 'connecting'
   streamKey.value += 1
-  await resetRemoteSession()
   startPolling()
 })
 
@@ -708,6 +734,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   stopPolling()
+  if (videoImg.value) videoImg.value.src = ''
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>

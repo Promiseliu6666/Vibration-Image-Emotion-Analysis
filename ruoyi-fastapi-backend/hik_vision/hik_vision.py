@@ -75,6 +75,7 @@ video_start_times = {"local": None, "rtsp": None}
 
 RECORD_FPS = 20.0
 RECORD_DURATION = 10.0
+RAW_STREAM_FPS = max(1.0, float(os.getenv("RAW_STREAM_FPS", "12")))
 
 # ==================== 优化参数 ====================
 FACE_DETECT_INTERVAL = 6
@@ -460,6 +461,7 @@ async def generate_raw_video_stream(
     async def generate():
         try:
             while not await request.is_disconnected():
+                loop_started = time.monotonic()
                 ret, frame = reader.read()
                 if not ret:
                     await asyncio.sleep(0.01)
@@ -475,7 +477,13 @@ async def generate_raw_video_stream(
                     + buffer.tobytes()
                     + b'\r\n'
                 )
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(
+                    max(
+                        0.01,
+                        (1.0 / RAW_STREAM_FPS)
+                        - (time.monotonic() - loop_started),
+                    )
+                )
         finally:
             reader.release()
 

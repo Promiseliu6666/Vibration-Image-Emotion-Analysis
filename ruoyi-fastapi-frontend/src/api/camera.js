@@ -1,10 +1,11 @@
 import request from '@/utils/request'
 
-export function listCameras() {
+export function listCameras(options = {}) {
   return request({
     url: '/video/cameras',
     method: 'get',
-    timeout: 20000
+    timeout: 20000,
+    silent: options.silent === true
   })
 }
 

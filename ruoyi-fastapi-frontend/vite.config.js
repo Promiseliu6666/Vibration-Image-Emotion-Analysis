@@ -28,6 +28,13 @@ export default defineConfig(({ mode, command }) => {
       port: 80,
       host: true,
       open: true,
+      watch: {
+        ignored: [
+          '**/.tmp-*',
+          '**/.tmp-*/**',
+          '**/dist/**'
+        ]
+      },
       proxy: {
         // https://cn.vitejs.dev/config/#server-proxy
         // OpenAPI JSON 文件代理

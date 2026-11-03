@@ -80,7 +80,12 @@ export const constantRoutes = [
         path: '/fatigue',
         component: () => import('@/views/fatigue/index'),
         name: 'FatigueDetection',
-        meta: { title: '疲劳检测', icon: 'timer', activeMenu: '/index' }
+        meta: {
+          title: '疲劳检测',
+          icon: 'timer',
+          activeMenu: '/index',
+          noCache: true
+        }
       }
     ]
   },

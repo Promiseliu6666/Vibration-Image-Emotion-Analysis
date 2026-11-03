@@ -1,12 +1,18 @@
 """One native capture per source; readers receive independent frame copies."""
-import threading,time
+import os,threading,time
 import cv2
+
+CAMERA_HUB_IDLE_SECONDS = max(
+    5.0,
+    float(os.getenv("CAMERA_HUB_IDLE_SECONDS", "45")),
+)
 
 class CameraHub:
     def __init__(self,source,opener):
         self.source=source;self.opener=opener;self.lock=threading.RLock()
         self.frame=None;self.sequence=0;self.captured_at=0.;self.demand=0.;self.thread=None
         self.fps=30.;self.error='等待摄像头连接';self.closed=False
+        self.idle_seconds=min(CAMERA_HUB_IDLE_SECONDS,10.0) if source.startswith('local') else CAMERA_HUB_IDLE_SECONDS
     def touch(self):
         with self.lock:
             self.demand=time.monotonic()
@@ -15,7 +21,7 @@ class CameraHub:
     def _run(self):
         cap=None
         try:
-            while not self.closed and time.monotonic()-self.demand<15:
+            while not self.closed and time.monotonic()-self.demand<self.idle_seconds:
                 if cap is None:
                     try:
                         cap=self.opener(self.source);self.fps=cap.get(cv2.CAP_PROP_FPS) or 30

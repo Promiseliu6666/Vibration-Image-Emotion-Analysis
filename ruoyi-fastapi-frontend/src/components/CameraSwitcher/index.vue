@@ -17,7 +17,7 @@
         :model-value="cameraStore.cameraId"
         class="camera-switcher__select"
         :size="size"
-        :loading="cameraStore.loadingDevices"
+        :loading="showLoading"
         aria-label="选择当前摄像头"
         @change="handleChange"
         @visible-change="handleVisibleChange"
@@ -46,10 +46,10 @@
       text
       circle
       class="camera-switcher__refresh"
-      :loading="cameraStore.loadingDevices"
+      :loading="showLoading"
       title="刷新摄像头列表"
       aria-label="刷新摄像头列表"
-      @click="refresh"
+      @click="refresh()"
     >
       <el-icon v-if="!cameraStore.loadingDevices"><Refresh /></el-icon>
     </el-button>
@@ -72,6 +72,10 @@ const props = defineProps({
 const cameraStore = useCameraStore()
 let refreshTimer = null
 
+const showLoading = computed(() => (
+  cameraStore.loadingDevices && !cameraStore.devicesLoaded
+))
+
 const statusTitle = computed(() => {
   if (cameraStore.deviceError) return cameraStore.deviceError
   if (cameraStore.selectedOnline === true) {
@@ -88,12 +92,17 @@ function handleChange(cameraId) {
 }
 
 function handleVisibleChange(visible) {
-  if (visible) refresh()
+  if (
+    visible
+    && Date.now() - cameraStore.lastDeviceSync > 10000
+  ) {
+    refresh(true)
+  }
 }
 
-async function refresh() {
+async function refresh(background = false) {
   try {
-    await cameraStore.loadXiaozhiDevices(true)
+    await cameraStore.loadXiaozhiDevices(true, background)
   } catch {
     // The store exposes the error in the control title; the request layer
     // already displays the actionable backend message.
@@ -103,8 +112,8 @@ async function refresh() {
 onMounted(() => {
   refresh()
   refreshTimer = window.setInterval(() => {
-    if (!document.hidden && !cameraStore.deviceError) refresh()
-  }, 12000)
+    if (!document.hidden && !cameraStore.deviceError) refresh(true)
+  }, 30000)
 })
 
 onBeforeUnmount(() => {
