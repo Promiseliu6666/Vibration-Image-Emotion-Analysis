@@ -74,6 +74,19 @@ export const constantRoutes = [
   {
     path: '',
     component: Layout,
+    hidden: true,
+    children: [
+      {
+        path: '/fatigue',
+        component: () => import('@/views/fatigue/index'),
+        name: 'FatigueDetection',
+        meta: { title: '疲劳检测', icon: 'timer', activeMenu: '/index' }
+      }
+    ]
+  },
+  {
+    path: '',
+    component: Layout,
     redirect: 'noredirect',
     children: [
       {

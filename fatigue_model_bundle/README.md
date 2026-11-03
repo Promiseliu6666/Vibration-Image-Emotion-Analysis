@@ -23,6 +23,7 @@ fatigue_model_bundle/
 │   ├── pose_pipeline.py
 │   ├── vision_pipeline.py
 │   └── weights_path.py     # 所有资产路径统一在这里
+├── platform_service.py     # 平台 HTTP 推理服务
 ├── verify_bundle.py
 ├── requirements.txt
 └── LICENSE
@@ -112,3 +113,35 @@ pipeline.close()
 
 完整姿态、特征聚合和时序评分接线方式见
 `scripts/live_inference_local.py`。训练、数据标注和评估功能不包含在此包中。
+
+## 平台 HTTP 服务
+
+平台首页的“疲劳检测”通过 `platform_service.py` 调用模型。服务从平台后台
+的本机摄像头桥接接口拉取原始画面，因此不会重复打开摄像头。
+
+在仓库根目录运行 `python start_local.py` 时，平台会自动启动这个服务。也可以
+在主后台和摄像头服务已经运行后手动启动：
+
+```bash
+python platform_service.py --host 127.0.0.1 --port 9101
+```
+
+可用环境变量：
+
+```text
+FATIGUE_CAMERA_BRIDGE_URL  默认 http://127.0.0.1:9099/video/shared/frame
+FATIGUE_DEVICE             默认 cuda，不可用时自动回退 cpu
+FATIGUE_INFERENCE_FPS      默认 12，平台服务连续推理目标帧率
+CAMERA_BRIDGE_KEY          可选；未设置时读取 .runtime/camera-bridge-secret.txt
+```
+
+服务提供以下接口：
+
+- `/health`：服务状态
+- `/results`：左侧面板使用的指标 JSON
+- `/reset`：重置当前检测会话
+- `/feed?show_boxes=0|1`：在模型实际处理的同一帧上绘制关键点和可选检测框，
+  输出 MJPEG 视频
+
+平台前端通过主后台 `/fatigue/results`、`/fatigue/reset` 和
+`/fatigue/feed` 访问这些能力。

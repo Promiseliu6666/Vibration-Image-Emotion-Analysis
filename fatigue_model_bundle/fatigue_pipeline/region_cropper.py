@@ -186,10 +186,14 @@ class RegionCropper:
             return None
         return result.face_landmarks[0]
 
-    def get_crops(self, frame: np.ndarray) -> CropResult:
+    def get_crops_with_boxes(
+        self,
+        frame: np.ndarray,
+    ) -> tuple[CropResult, dict[str, tuple[int, int, int, int] | None]]:
+        """Return classifier crops and axis-aligned boxes for HUD overlays."""
         face = self._detect_landmarks(frame)
         if face is None:
-            return None, None, None
+            return (None, None, None), {}
 
         h, w = frame.shape[:2]
         eye_dist = self.get_inter_eye_distance(face, w, h)
@@ -226,4 +230,36 @@ class RegionCropper:
             frame, (mcx, mcy), roll_deg, mouth_box_w, mouth_box_h, self.mouth_crop_size
         )
 
-        return left_eye, right_eye, mouth
+        _, left_eye_box = self.crop_fixed_box(
+            frame, left_center, eye_box_w, eye_box_h, self.eye_crop_size
+        )
+        _, right_eye_box = self.crop_fixed_box(
+            frame, right_center, eye_box_w, eye_box_h, self.eye_crop_size
+        )
+        _, mouth_box = self.crop_fixed_box(
+            frame, (mcx, mcy), mouth_box_w, mouth_box_h, self.mouth_crop_size
+        )
+
+        xs = [self.landmark_to_pixel(landmark, w, h)[0] for landmark in face]
+        ys = [self.landmark_to_pixel(landmark, w, h)[1] for landmark in face]
+        pad = 8
+        face_box = (
+            max(0, min(xs) - pad),
+            max(0, min(ys) - pad),
+            min(w, max(xs) + pad),
+            min(h, max(ys) + pad),
+        )
+
+        return (
+            (left_eye, right_eye, mouth),
+            {
+                "face": face_box,
+                "left_eye": left_eye_box,
+                "right_eye": right_eye_box,
+                "mouth": mouth_box,
+            },
+        )
+
+    def get_crops(self, frame: np.ndarray) -> CropResult:
+        crops, _ = self.get_crops_with_boxes(frame)
+        return crops

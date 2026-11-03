@@ -2,6 +2,7 @@ from pathlib import Path
 import os,socket,subprocess,time,shutil,json,urllib.error,urllib.request
 root=Path(__file__).resolve().parent
 b=root/'ruoyi-fastapi-backend';f=root/'ruoyi-fastapi-frontend';x=root/'xiaozhi-study'
+fatigue=root/'fatigue_model_bundle'
 logs=root/'.runtime/logs';logs.mkdir(parents=True,exist_ok=True)
 dotnet=root/'.runtime/dotnet'
 if dotnet.exists():os.environ['DOTNET_ROOT']=str(dotnet)
@@ -73,11 +74,23 @@ if not listening(xdb_port):raise ConnectionError(f'Xiaozhi MySQL is not listenin
 
 launch('backend',[b/'.venv/Scripts/python.exe','app.py','--env=dev'],b,9099)
 launch('xiaozhi',[xpython,'-u','main.py'],x,8000)
+fatigue_python=Path(os.getenv('FATIGUE_SERVICE_PYTHON') or config_value(
+ 'FATIGUE_SERVICE_PYTHON',
+ r'D:\Python\environments\fatigue-sense\python.exe'
+))
+fatigue_port=int(config_value('FATIGUE_SERVICE_PORT','9101'))
+if not fatigue_python.exists():
+ raise FileNotFoundError(f'Fatigue Python environment not found: {fatigue_python}')
+launch('fatigue',[fatigue_python,'platform_service.py','--host','127.0.0.1','--port',str(fatigue_port)],fatigue,fatigue_port)
 for _ in range(60):
  if http_ready('http://127.0.0.1:9099/openapi.json') and http_ready('http://127.0.0.1:8000/'):break
  time.sleep(1)
 if not http_ready('http://127.0.0.1:9099/openapi.json'):print('Warning: main backend is still starting on port 9099')
 if not http_ready('http://127.0.0.1:8000/'):print('Warning: Xiaozhi backend is still starting on port 8000')
+for _ in range(20):
+ if http_ready(f'http://127.0.0.1:{fatigue_port}/health'):break
+ time.sleep(.5)
+if not http_ready(f'http://127.0.0.1:{fatigue_port}/health'):print(f'Warning: fatigue service is still starting on port {fatigue_port}')
 node_path=shutil.which('node')
 if not node_path:raise FileNotFoundError('Node.js was not found on PATH.')
 node=Path(node_path)

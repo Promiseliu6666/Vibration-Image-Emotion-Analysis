@@ -29,6 +29,28 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont:
     )
 
 
+def draw_hud_panel(
+    frame: np.ndarray,
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    *,
+    panel_alpha: float = 0.45,
+) -> None:
+    """Darken a rectangular HUD region to match the text backing panel."""
+    h, w = frame.shape[:2]
+    x1 = max(0, min(int(x1), w))
+    y1 = max(0, min(int(y1), h))
+    x2 = max(x1, min(int(x2), w))
+    y2 = max(y1, min(int(y2), h))
+    if x1 == x2 or y1 == y2:
+        return
+
+    panel = frame[y1:y2, x1:x2]
+    cv2.convertScaleAbs(panel, alpha=panel_alpha, dst=panel)
+
+
 def put_cjk_lines(
     frame: np.ndarray,
     lines: list[tuple[str, tuple[int, int, int]]],
@@ -52,10 +74,16 @@ def put_cjk_lines(
     )
     panel_width = min(int(text_width) + x * 2, frame.shape[1])
     panel_height = min(line_height * len(lines) + y, frame.shape[0])
-    panel = frame[:panel_height, :panel_width]
-    cv2.convertScaleAbs(panel, alpha=panel_alpha, dst=panel)
+    draw_hud_panel(
+        frame,
+        0,
+        0,
+        panel_width,
+        panel_height,
+        panel_alpha=panel_alpha,
+    )
 
-    image = Image.fromarray(panel)
+    image = Image.fromarray(frame[:panel_height, :panel_width])
     draw = ImageDraw.Draw(image)
     text_y = y
     for text, color in lines:
@@ -63,4 +91,34 @@ def put_cjk_lines(
             rgb = (color[2], color[1], color[0])
             draw.text((x, text_y), text, font=font, fill=rgb)
         text_y += line_height
-    panel[:] = np.asarray(image)
+    frame[:panel_height, :panel_width] = np.asarray(image)
+
+
+def put_cjk_texts(
+    frame: np.ndarray,
+    items: list[
+        tuple[str, tuple[int, int], int, tuple[int, int, int], str]
+    ],
+) -> None:
+    """Draw independently positioned CJK labels in one image conversion."""
+    if not items:
+        return
+
+    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(image)
+    anchors = {"left": "la", "center": "ma", "right": "ra"}
+
+    for text, (x, y), font_size, color, align in items:
+        if not text:
+            continue
+        font = _load_font(font_size)
+        rgb = (color[2], color[1], color[0])
+        draw.text(
+            (x, y),
+            text,
+            font=font,
+            fill=rgb,
+            anchor=anchors.get(align, "la"),
+        )
+
+    frame[:] = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)

@@ -434,6 +434,44 @@ async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, 
         return "Unknown", 0.0
 
 
+@videoController.get("/feed/raw")
+async def generate_raw_video_stream(
+        request: Request,
+        source: str = Query(default='local'),
+        device_id: str = Query(default='')
+):
+    """Stream the shared camera without happiness-analysis overlays."""
+    source = resolve_camera_source(source, device_id)
+    reader = get_camera_cap(source)
+
+    async def generate():
+        try:
+            while not await request.is_disconnected():
+                ret, frame = reader.read()
+                if not ret:
+                    await asyncio.sleep(0.01)
+                    continue
+                _, buffer = await asyncio.to_thread(
+                    cv2.imencode,
+                    '.jpg',
+                    frame,
+                    [int(cv2.IMWRITE_JPEG_QUALITY), 78],
+                )
+                yield (
+                    b'--frame\r\nContent-Type: image/jpeg\r\n\r\n'
+                    + buffer.tobytes()
+                    + b'\r\n'
+                )
+                await asyncio.sleep(0.01)
+        finally:
+            reader.release()
+
+    return StreamingResponse(
+        generate(),
+        media_type='multipart/x-mixed-replace; boundary=frame',
+    )
+
+
 # ==================== 主视频流函数（已包含ffmpeg转码后删除AVI功能） ====================
 @videoController.get("/feed/analysis")
 async def generate_video_stream(
@@ -805,9 +843,13 @@ from pathlib import Path
 import hmac
 
 @videoController.get('/shared/frame')
-async def shared_camera_frame(request: Request, source: str = 'local'):
+async def shared_camera_frame(
+        request: Request,
+        source: str = 'local',
+        device_id: str = ''):
     if request.client is None or request.client.host not in ('127.0.0.1','::1'):
         raise HTTPException(403, '仅允许本机共享摄像头')
+    source = resolve_camera_source(source, device_id)
     secret_file = Path(__file__).resolve().parents[2] / '.runtime/camera-bridge-secret.txt'
     supplied = request.headers.get('X-Camera-Bridge-Key', '')
     if not secret_file.exists() or not hmac.compare_digest(supplied, secret_file.read_text(encoding='utf-8').strip()):

@@ -1,5 +1,55 @@
 <template>
   <div class="analysis-container">
+    <section class="detection-hub" aria-labelledby="detection-hub-title">
+      <div class="detection-hub__heading">
+        <div>
+          <span class="detection-hub__eyebrow">智能状态感知</span>
+          <h2 id="detection-hub-title">选择检测方式</h2>
+        </div>
+        <p>共用现有摄像头接入，从心理状态与疲劳行为两个角度辅助观察。</p>
+      </div>
+
+      <div class="detection-grid">
+        <button
+          type="button"
+          class="detection-card detection-card--wellbeing"
+          @click="router.push('/camera/live')"
+        >
+          <span class="detection-card__icon" aria-hidden="true">
+            <el-icon :size="25"><Sunny /></el-icon>
+          </span>
+          <span class="detection-card__body">
+            <span class="detection-card__meta">面部微振动 · 心理状态</span>
+            <strong>幸福指数检测</strong>
+            <span class="detection-card__description">
+              查看当前幸福指数、安全风险与各项振动心理指标。
+            </span>
+          </span>
+          <span class="detection-card__action">进入检测 <span>→</span></span>
+          <span class="signal-trace" aria-hidden="true"></span>
+        </button>
+
+        <button
+          type="button"
+          class="detection-card detection-card--fatigue"
+          @click="router.push('/fatigue')"
+        >
+          <span class="detection-card__icon" aria-hidden="true">
+            <el-icon :size="25"><Timer /></el-icon>
+          </span>
+          <span class="detection-card__body">
+            <span class="detection-card__meta">眼口行为 · 姿态时序</span>
+            <strong>疲劳检测</strong>
+            <span class="detection-card__description">
+              观察闭眼、眨眼、哈欠和姿态变化，综合评估当前专注度。
+            </span>
+          </span>
+          <span class="detection-card__action">进入检测 <span>→</span></span>
+          <span class="signal-trace" aria-hidden="true"></span>
+        </button>
+      </div>
+    </section>
+
     <el-card class="search-card">
       <el-form :inline="true" :model="queryParams" label-width="100px">
         <el-form-item label="人员ID">
@@ -468,8 +518,10 @@
 
 <script setup>
 import { ref, watch, onMounted, onUnmounted, getCurrentInstance, nextTick, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
+import { Sunny, Timer } from '@element-plus/icons-vue'
 import {
   listAnalysis,
   getAnalysis,
@@ -481,6 +533,8 @@ import {
   downloadVideo,
   exportPersonReport
 } from '@/api/binhua/analysis'
+
+const router = useRouter()
 
 const queryParams = ref({
   personId: null,
@@ -1252,6 +1306,143 @@ const loadAllPersonNames = async () => {
 .analysis-container {
   padding: 20px;
 }
+.detection-hub {
+  margin-bottom: 20px;
+  padding: 22px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 92% 8%, rgba(59, 130, 246, 0.08), transparent 28%),
+    #f8fafc;
+  border: 1px solid #e4e9f0;
+  border-radius: 12px;
+}
+.detection-hub__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+.detection-hub__eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+.detection-hub__heading h2 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 22px;
+  line-height: 1.3;
+}
+.detection-hub__heading p {
+  max-width: 480px;
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: right;
+}
+.detection-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.detection-card {
+  --accent: #2f7d65;
+  --accent-soft: #e8f5ef;
+  position: relative;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  min-height: 136px;
+  padding: 20px 20px 24px;
+  overflow: hidden;
+  color: #1f2937;
+  text-align: left;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.05);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.detection-card--fatigue {
+  --accent: #b66b17;
+  --accent-soft: #fff4e5;
+}
+.detection-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 42%, #e2e8f0);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.09);
+}
+.detection-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  outline-offset: 2px;
+}
+.detection-card__icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 12px;
+  place-items: center;
+}
+.detection-card__body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.detection-card__meta {
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.detection-card__body strong {
+  color: #111827;
+  font-size: 18px;
+  line-height: 1.4;
+}
+.detection-card__description {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.detection-card__action {
+  align-self: end;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.detection-card__action span {
+  display: inline-block;
+  margin-left: 3px;
+  transition: transform 180ms ease;
+}
+.detection-card:hover .detection-card__action span {
+  transform: translateX(3px);
+}
+.signal-trace {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 5px;
+  opacity: 0.55;
+  background:
+    linear-gradient(166deg, transparent 0 22%, var(--accent) 22% 27%, transparent 27% 42%, var(--accent) 42% 48%, transparent 48% 64%, var(--accent) 64% 68%, transparent 68%);
+  background-size: 76px 8px;
+}
 .search-card {
   margin-bottom: 20px;
 }
@@ -1351,6 +1542,44 @@ const loadAllPersonNames = async () => {
   }
   .analysis-video {
     max-height: 280px;
+  }
+}
+@media (max-width: 860px) {
+  .detection-hub__heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .detection-hub__heading p {
+    text-align: left;
+  }
+  .detection-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 520px) {
+  .analysis-container {
+    padding: 12px;
+  }
+  .detection-hub {
+    padding: 16px;
+  }
+  .detection-card {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px 16px 22px;
+  }
+  .detection-card__icon {
+    width: 44px;
+    height: 44px;
+  }
+  .detection-card__action {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .detection-card,
+  .detection-card__action span {
+    transition: none;
   }
 }
 </style>

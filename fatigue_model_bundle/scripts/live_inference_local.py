@@ -49,14 +49,13 @@ from model_architecture.utils.normalization import load_normalization
 from scripts.weights_path import (
     EYE_CKPT,
     LANDMARKER_PATH,
-    MODEL_CONFIG_PATH,
     MOUTH_CKPT,
     NORMALIZATION_PATH,
     POSE_MODEL_PATH,
     TEMPORAL_MODEL_PATH,
     resolve_asset,
 )
-from scripts.hud_text import put_cjk_lines
+from scripts.hud_text import draw_hud_panel, put_cjk_lines, put_cjk_texts
 
 # ---- display / capture ----
 PREVIEW_WIDTH = 1280
@@ -249,12 +248,12 @@ def _status_label(score: float | None) -> tuple[str, tuple[int, int, int]]:
     Return a display label and BGR color for a focus score
     """
     if score is None:
-        return ("WARM-UP", (180, 180, 180))
+        return ("预热中", (180, 180, 180))
     if score < 0.30:
-        return ("FATIGUED", (0, 0, 255))
+        return ("疲劳", (0, 0, 255))
     if score < 0.55:
-        return ("DROWSY", (0, 165, 255))
-    return ("ALERT", (0, 200, 0))
+        return ("困倦", (0, 165, 255))
+    return ("清醒", (0, 200, 0))
 
 
 def _put_text(
@@ -427,25 +426,38 @@ def _draw_right_hud(
 ) -> None:
     h, w = frame.shape[:2]
     right_x = w - 30  # right margin anchor
+    counter_y = 280
+
+    # Match the left-side HUD backing while keeping the webcam visible.
+    panel_x1 = max(12, right_x - 290)
+    panel_x2 = min(w - 12, right_x + 18)
+    panel_y1 = 12
+    panel_y2 = min(h - 12, counter_y + 180)
+    draw_hud_panel(frame, panel_x1, panel_y1, panel_x2, panel_y2)
 
     label, color = _status_label(score_ema)
+    gray = (180, 180, 180)
+    white = (255, 255, 255)
+    cjk_items: list[
+        tuple[str, tuple[int, int], int, tuple[int, int, int], str]
+    ] = [
+        ("专注度", (right_x, 35), 24, color, "right"),
+    ]
 
-    # Big focus score
+    # Main focus score
     if score_ema is None:
         pct = (buffer_fill / buffer_target * 100.0) if buffer_target else 0.0
-        _put_text(frame, "FOCUS", (right_x, 60), 0.7, color, 2, align="right")
         _put_text(frame, "--", (right_x, 130), 2.4, color, 4, align="right")
-        _put_text(
-            frame,
-            f"warmup {buffer_fill}/{buffer_target} ({pct:.0f}%)",
-            (right_x, 165),
-            0.6,
-            (180, 180, 180),
-            1,
-            align="right",
+        cjk_items.append(
+            (
+                f"预热 {buffer_fill}/{buffer_target} ({pct:.0f}%)",
+                (right_x, 145),
+                16,
+                gray,
+                "right",
+            )
         )
     else:
-        _put_text(frame, "FOCUS", (right_x, 60), 0.7, color, 2, align="right")
         _put_text(
             frame,
             f"{score_ema:.2f}",
@@ -455,16 +467,16 @@ def _draw_right_hud(
             5,
             align="right",
         )
-        _put_text(frame, label, (right_x, 175), 0.9, color, 2, align="right")
+        cjk_items.append((label, (right_x, 150), 28, color, "right"))
         if score_raw is not None:
-            _put_text(
-                frame,
-                f"raw {score_raw:.2f}",
-                (right_x, 200),
-                0.55,
-                (180, 180, 180),
-                1,
-                align="right",
+            cjk_items.append(
+                (
+                    f"原始值 {score_raw:.2f}",
+                    (right_x, 188),
+                    16,
+                    gray,
+                    "right",
+                )
             )
 
         # Score bar (right-justified)
@@ -472,54 +484,48 @@ def _draw_right_hud(
         bar_h = 16
         bar_x2 = right_x
         bar_x1 = bar_x2 - bar_w
-        bar_y = 215
+        bar_y = 220
         cv2.rectangle(frame, (bar_x1, bar_y), (bar_x2, bar_y + bar_h), (60, 60, 60), -1)
         fill = int(bar_w * float(np.clip(score_ema, 0.0, 1.0)))
         cv2.rectangle(frame, (bar_x1, bar_y), (bar_x1 + fill, bar_y + bar_h), color, -1)
 
     # Counters
-    counter_y = 290
-    _put_text(
-        frame, "BLINKS", (right_x, counter_y), 0.6, (200, 200, 200), 1, align="right"
+    cjk_items.append(
+        ("眨眼次数", (right_x, counter_y), 18, (200, 200, 200), "right")
     )
     _put_text(
         frame,
         f"{blink_total}",
-        (right_x, counter_y + 50),
+        (right_x, counter_y + 55),
         1.5,
-        (255, 255, 255),
+        white,
         3,
         align="right",
     )
 
-    _put_text(
-        frame,
-        "YAWNS",
-        (right_x, counter_y + 90),
-        0.6,
-        (200, 200, 200),
-        1,
-        align="right",
+    cjk_items.append(
+        (
+            "哈欠次数",
+            (right_x, counter_y + 95),
+            18,
+            (200, 200, 200),
+            "right",
+        )
     )
     _put_text(
         frame,
         f"{yawn_total}",
-        (right_x, counter_y + 140),
+        (right_x, counter_y + 145),
         1.5,
-        (255, 255, 255),
+        white,
         3,
         align="right",
     )
 
-    _put_text(
-        frame,
-        "q to quit",
-        (right_x, h - 18),
-        0.5,
-        (180, 180, 180),
-        1,
-        align="right",
+    cjk_items.append(
+        ("按 q 退出", (right_x, h - 35), 16, gray, "right")
     )
+    put_cjk_texts(frame, cjk_items)
 
 
 def _draw_geometry(
@@ -614,11 +620,7 @@ def main() -> None:
         norm = load_normalization(norm_path)
         norm_mean = torch.from_numpy(norm["mean"]).to(torch_device)
         norm_std = torch.from_numpy(norm["std"]).to(torch_device)
-        temporal_model = load_temporal_checkpoint(
-            temporal_ckpt,
-            torch_device,
-            config_path=MODEL_CONFIG_PATH,
-        )
+        temporal_model = load_temporal_checkpoint(temporal_ckpt, torch_device)
         print(f"[live_local] temporal model loaded - focus score active")
     else:
         print(

@@ -42,6 +42,7 @@ from module_xuzhou.controller.scene_controller import sceneController
 from module_xuzhou.controller.video_controller import videoController
 from module_xuzhou.controller.analysis_controller import analysis_controller
 from module_xuzhou.controller.alarm_controller import alarmController
+from module_xuzhou.controller.fatigue_controller import fatigue_controller
 from module_task.monitor_controller import monitorController
 from module_task.inference_monitor import start_inference_monitor
 from sub_applications.handle import handle_sub_applications
@@ -117,6 +118,7 @@ controller_list = [
     {'router': algorithmController, 'tags': ['算法列表']},
     {'router': sceneController, 'tags': ['场景列表']},
     {'router': analysis_controller,'tags':['分析列表']},
+    {'router': fatigue_controller,'tags':['疲劳检测']},
     {'router': commandController, 'tags': ['场景监控']},
     {'router': alarmController, 'tags': ['预警管理']},
     {'router': people_controller, 'tags': ['人员']},
