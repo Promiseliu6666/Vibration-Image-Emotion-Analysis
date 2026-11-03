@@ -1,0 +1,11 @@
+# Generated Python files
+__pycache__/
+*.py[cod]
+
+# The parent repository ignores *.pt globally, but this portable bundle must
+# carry its four model weights when the bundle itself is committed.
+!assets/
+!assets/best_eyes.pt
+!assets/best_mouth.pt
+!assets/best_pose_model.pt
+!assets/best_temporal.pt

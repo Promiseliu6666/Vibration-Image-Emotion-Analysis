@@ -1,0 +1,9 @@
+{
+  "hidden_dim": 64,
+  "num_layers": 2,
+  "gru_dropout": 0.25,
+  "head_dim": 32,
+  "head_dropout": 0.35,
+  "sequence_dropout": 0.25,
+  "pool": "mean"
+}

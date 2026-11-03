@@ -1,0 +1,10 @@
+# Install a PyTorch build matching the target machine first when CUDA is needed.
+torch>=2.6,<3
+torchvision>=0.21,<1
+numpy>=1.26,<3
+
+# Face landmarks, video I/O, pose inference, and HUD text.
+mediapipe>=0.10.9
+opencv-python>=4.8,<5
+ultralytics>=8.3,<9
+Pillow>=10
