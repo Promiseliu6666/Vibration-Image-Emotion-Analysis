@@ -87,6 +87,18 @@ for _ in range(60):
  time.sleep(1)
 if not http_ready('http://127.0.0.1:9099/openapi.json'):print('Warning: main backend is still starting on port 9099')
 if not http_ready('http://127.0.0.1:8000/'):print('Warning: Xiaozhi backend is still starting on port 8000')
+# stop_local also stops USB capture; restore only previously enabled, known units.
+if http_ready('http://127.0.0.1:8000/'):
+ try:
+  result=subprocess.run(
+   [str(xpython),'-c','import json; from app.device.capture_control import resume_registered; print(json.dumps(resume_registered(), ensure_ascii=False))'],
+   cwd=x,capture_output=True,text=True,encoding='utf-8',timeout=20,
+   creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),
+  )
+  if result.returncode==0:print('Xiaozhi USB capture:',result.stdout.strip())
+  else:print('Warning: USB capture could not resume; check the Xiaozhi device manager.',result.stderr.strip())
+ except (OSError,subprocess.TimeoutExpired) as exc:
+  print('Warning: USB capture could not resume:',exc)
 for _ in range(20):
  if http_ready(f'http://127.0.0.1:{fatigue_port}/health'):break
  time.sleep(.5)

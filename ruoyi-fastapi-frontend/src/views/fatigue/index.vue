@@ -31,12 +31,60 @@
           >
           <img
             ref="videoImg"
-            :key="`${cameraStore.cameraId}-${showBoxes}-${streamKey}`"
-            :src="displayVideoStreamUrl"
+            :key="`${cameraStore.cameraId}-${streamKey}`"
+            :src="videoStreamUrl"
             alt="疲劳检测实时视频"
             @load="onVideoLoad"
             @error="onVideoError"
           />
+          <svg
+            v-if="showBoxes"
+            class="detection-overlay"
+            :viewBox="`0 0 ${videoSize.width} ${videoSize.height}`"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <g
+              v-for="box in detectionBoxes"
+              :key="box.name"
+              class="detection-overlay__box"
+            >
+              <rect
+                :x="box.x1 * videoSize.width"
+                :y="box.y1 * videoSize.height"
+                :width="box.width * videoSize.width"
+                :height="box.height * videoSize.height"
+                :stroke="box.color"
+                vector-effect="non-scaling-stroke"
+              />
+              <text
+                :x="box.x1 * videoSize.width"
+                :y="box.labelY * videoSize.height"
+                :fill="box.color"
+              >
+                {{ box.label }}
+              </text>
+            </g>
+            <line
+              v-for="(segment, index) in poseSegments"
+              :key="`segment-${index}`"
+              :x1="segment.x1 * videoSize.width"
+              :y1="segment.y1 * videoSize.height"
+              :x2="segment.x2 * videoSize.width"
+              :y2="segment.y2 * videoSize.height"
+              class="detection-overlay__line"
+              vector-effect="non-scaling-stroke"
+            />
+            <circle
+              v-for="(point, index) in poseKeypoints"
+              :key="`point-${index}`"
+              :cx="point.x * videoSize.width"
+              :cy="point.y * videoSize.height"
+              r="3"
+              class="detection-overlay__point"
+              vector-effect="non-scaling-stroke"
+            />
+          </svg>
           <div class="video-vignette" aria-hidden="true"></div>
           <div v-if="videoState !== 'online'" class="video-placeholder">
             <el-icon :size="34"><VideoCamera /></el-icon>
@@ -460,7 +508,9 @@ const videoImg = ref(null)
 
 const streamKey = ref(0)
 const videoState = ref('connecting')
-const videoAspectRatio = ref('4 / 3')
+// Use image pixels for SVG units so text and strokes cannot cover the video.
+const videoSize = ref({ width: 640, height: 480 })
+const videoAspectRatio = computed(() => `${videoSize.value.width} / ${videoSize.value.height}`)
 const videoError = ref('')
 const serviceError = ref('')
 const resetting = ref(false)
@@ -500,16 +550,8 @@ const result = ref(emptyResult())
 const sourceQuery = computed(() => cameraQueryString(cameraStore.cameraId))
 
 const videoStreamUrl = computed(
-  () => `${baseURL}/fatigue/feed?${sourceQuery.value}` +
-    `&show_boxes=${showBoxes.value ? 1 : 0}` +
-    `&stream=${streamKey.value}`
-)
-const rawVideoStreamUrl = computed(
   () => `${baseURL}/video/feed/raw?${sourceQuery.value}` +
     `&stream=${streamKey.value}`
-)
-const displayVideoStreamUrl = computed(
-  () => showBoxes.value ? videoStreamUrl.value : rawVideoStreamUrl.value
 )
 
 const cameraLabel = computed(() => cameraStore.cameraLabel)
@@ -622,9 +664,92 @@ function formatNumber(value, digits = 2, fallback = '--', signed = false) {
   return signed && number >= 0 ? `+${text}` : text
 }
 
+const boxSpecs = [
+  { name: 'face', label: 'face', color: '#a1e26e' },
+  { name: 'left_eye', label: 'L eye', color: '#ffd17b', probability: 'p_left' },
+  { name: 'right_eye', label: 'R eye', color: '#ffd17b', probability: 'p_right' },
+  { name: 'mouth', label: 'mouth', color: '#ffae6a', probability: 'p_mouth' }
+]
+
+const detectionBoxes = computed(() => {
+  const boxes = result.value.boxes || {}
+
+  return boxSpecs.flatMap(spec => {
+    const box = boxes[spec.name]
+    if (!box) return []
+
+    const coords = ['x1', 'y1', 'x2', 'y2'].map(key => Number(box[key]))
+    if (!coords.every(Number.isFinite)) return []
+
+    const [rawX1, rawY1, rawX2, rawY2] = coords
+    const x1 = Math.max(0, Math.min(1, rawX1, rawX2))
+    const y1 = Math.max(0, Math.min(1, rawY1, rawY2))
+    const x2 = Math.min(1, Math.max(0, rawX1, rawX2))
+    const y2 = Math.min(1, Math.max(0, rawY1, rawY2))
+    if (x2 <= x1 || y2 <= y1) return []
+
+    const probability = spec.probability
+      ? Number(result.value[spec.probability])
+      : null
+    const isAlert = (
+      spec.name === 'mouth'
+        ? result.value.is_yawning
+        : ['left_eye', 'right_eye'].includes(spec.name)
+          && result.value.is_blinking
+    )
+
+    return [{
+      ...spec,
+      x1,
+      y1,
+      x2,
+      y2,
+      width: x2 - x1,
+      height: y2 - y1,
+      labelY: Math.max(0.026, y1 - 0.012),
+      color: isAlert ? '#ff665f' : spec.color,
+      label: Number.isFinite(probability)
+        ? `${spec.label} ${probability.toFixed(2)}`
+        : spec.label
+    }]
+  })
+})
+
+const poseKeypointSlots = computed(() => (
+  (result.value.keypoints || []).map(point => {
+    if (point?.x == null || point?.y == null) return null
+    const x = Number(point.x)
+    const y = Number(point.y)
+    const visible = (
+      Number.isFinite(x)
+      && Number.isFinite(y)
+      && x >= 0
+      && x <= 1
+      && y >= 0
+      && y <= 1
+    )
+    return visible ? { x, y } : null
+  })
+))
+
+const poseKeypoints = computed(() => (
+  poseKeypointSlots.value.filter(Boolean)
+))
+
+const poseSegments = computed(() => {
+  const points = poseKeypointSlots.value
+  return [[0, 1], [0, 2], [0, 3], [0, 4], [3, 4]]
+    .filter(([start, end]) => points[start] && points[end])
+    .map(([start, end]) => ({
+      x1: points[start].x,
+      y1: points[start].y,
+      x2: points[end].x,
+      y2: points[end].y
+    }))
+})
+
 function toggleDetectionBoxes() {
   showBoxes.value = !showBoxes.value
-  streamKey.value += 1
 }
 
 async function fetchResults() {
@@ -678,7 +803,7 @@ function onVideoLoad(event) {
   videoError.value = ''
   const image = event?.currentTarget
   if (image?.naturalWidth && image?.naturalHeight) {
-    videoAspectRatio.value = `${image.naturalWidth} / ${image.naturalHeight}`
+    videoSize.value = { width: image.naturalWidth, height: image.naturalHeight }
   }
 }
 
@@ -1015,6 +1140,41 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   object-fit: cover;
+}
+.detection-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.detection-overlay__box rect {
+  fill: none;
+  stroke-width: 2px;
+  transition:
+    x 120ms linear,
+    y 120ms linear,
+    width 120ms linear,
+    height 120ms linear;
+}
+.detection-overlay__box text {
+  font-size: 12px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(12, 16, 22, 0.9);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.detection-overlay__line {
+  stroke: #69d2ff;
+  stroke-width: 2px;
+}
+.detection-overlay__point {
+  fill: #69d2ff;
+  stroke: rgba(12, 16, 22, 0.85);
+  stroke-width: 1px;
 }
 .video-placeholder {
   position: absolute;

@@ -54,7 +54,7 @@ def _stop(current):
    except psutil.NoSuchProcess:pass
   _,alive=psutil.wait_procs(children+[current],timeout=5)
   if alive:raise RuntimeError('采集进程仍在退出，请稍后重试')
-def set_running(enabled,port=None,device_id=None):
+def set_running(enabled,port=None,device_id=None,*,restore=True):
  with _lock:
   rows,ports,items=_rows()
   if not enabled:
@@ -80,6 +80,28 @@ def set_running(enabled,port=None,device_id=None):
    if key==serial or item.get('port')==port:_stop(_process(item.get('pid')));items.pop(key,None)
   RUNTIME_DIR.mkdir(exist_ok=True);tag=serial.lower()
   with (RUNTIME_DIR/f'watcher-{tag}.log').open('ab') as out,(RUNTIME_DIR/f'watcher-{tag}-error.log').open('ab') as err:
-   child=subprocess.Popen([sys.executable,'-u',str(SCRIPT),'--port',port,'--usb-serial',serial,'--restore'],cwd=ROOT,stdout=out,stderr=err,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+   args=[sys.executable,'-u',str(SCRIPT),'--port',port,'--usb-serial',serial]
+   if restore:args.append('--restore')
+   child=subprocess.Popen(args,cwd=ROOT,stdout=out,stderr=err,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
   items[serial]={'pid':child.pid,'port':port,'device_id':device_id};_save(items)
  return status(device_id,port)
+
+
+def resume_registered():
+ """Resume previously enabled collectors after the local services restart."""
+ from app.device import device_registry
+ resumed=[];errors=[]
+ with _lock:
+  ports=usb_identity.camera_ports()
+  for serial,item in _load().items():
+   device_id=item.get('device_id')
+   # Explicit stops clear the PID. Unknown or removed devices need manual connection.
+   if not item.get('pid') or not device_id or device_registry.blocked(device_id):continue
+   physical=next((p for p in ports if p.serial_number==serial),None)
+   if physical is None:continue
+   try:
+    state=set_running(True,port=physical.device,device_id=device_id,restore=False)
+    resumed.append({'device_id':device_id,'port':physical.device,'running':state['running']})
+   except (OSError,RuntimeError,ValueError) as exc:
+    errors.append({'device_id':device_id,'error':str(exc)})
+ return {'collectors':resumed,'errors':errors}
