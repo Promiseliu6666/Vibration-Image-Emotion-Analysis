@@ -6,10 +6,11 @@ import os
 from collections.abc import AsyncIterator
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 
 from hik_vision.camera_contract import resolve_camera_selection
+from hik_vision.hik_vision import _require_video_stream_user, _require_video_user
 
 fatigue_controller = APIRouter(prefix="/fatigue", tags=["疲劳检测"])
 
@@ -52,12 +53,12 @@ def _camera_params(
     return selection.legacy_params()
 
 
-@fatigue_controller.get("/status")
+@fatigue_controller.get("/status", dependencies=[Depends(_require_video_user)])
 async def get_fatigue_status() -> Response:
     return await _forward("/health", {})
 
 
-@fatigue_controller.get("/results")
+@fatigue_controller.get("/results", dependencies=[Depends(_require_video_user)])
 async def get_fatigue_results(
     camera_id: str = Query(default=""),
     source: str = Query(default="local"),
@@ -69,7 +70,7 @@ async def get_fatigue_results(
     )
 
 
-@fatigue_controller.get("/feed")
+@fatigue_controller.get("/feed", dependencies=[Depends(_require_video_stream_user)])
 async def get_fatigue_feed(
     camera_id: str = Query(default=""),
     source: str = Query(default="local"),
@@ -127,7 +128,7 @@ async def get_fatigue_feed(
     )
 
 
-@fatigue_controller.post("/reset")
+@fatigue_controller.post("/reset", dependencies=[Depends(_require_video_user)])
 async def reset_fatigue_results(
     camera_id: str = Query(default=""),
     source: str = Query(default="local"),

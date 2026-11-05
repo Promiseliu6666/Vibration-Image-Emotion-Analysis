@@ -1,13 +1,20 @@
-"""项目根目录与常用目录常量。
-
-所有模块统一从这里取路径，不再用 __file__ 猜自己在哪一层 ——
-这样文件在包内怎么移动都不会改坏运行时路径。
-"""
+"""Keep source assets local while allowing explicit reuse of existing local data."""
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_DIR = PROJECT_ROOT / '.runtime'
-FRAMES_DIR = PROJECT_ROOT / 'frames'
-MODELS_DIR = PROJECT_ROOT / 'models'
+
+def _local_directory(name, default):
+    configured = os.environ.get(name, '').strip()
+    if not configured:
+        return default
+    directory = Path(configured).expanduser()
+    if not directory.is_absolute():
+        directory = PROJECT_ROOT / directory
+    return directory.resolve()
+
+RUNTIME_DIR = _local_directory('XIAOZHI_RUNTIME_DIR', PROJECT_ROOT / '.runtime')
+FRAMES_DIR = _local_directory('XIAOZHI_FRAMES_DIR', PROJECT_ROOT / 'frames')
+MODELS_DIR = _local_directory('XIAOZHI_MODELS_DIR', PROJECT_ROOT / 'models')
 STATIC_DIR = PROJECT_ROOT / 'static'
 DOCS_DIR = PROJECT_ROOT / 'docs'

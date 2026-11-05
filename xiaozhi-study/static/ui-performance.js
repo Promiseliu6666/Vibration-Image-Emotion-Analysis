@@ -65,10 +65,11 @@ function scheduleRefresh(){
 }
 async function toggleCapture(){
  if(uxState.capturePending)return;
+ const sharedSource=selectedSharedCameraSource();
  const selectedCapture=data?.capture?.by_device?.[selected];
- const running=!!selectedCapture?.running||(data?.capture?.device_id===selected&&!!data?.capture?.running);
+ const running=sharedSource?!!data?.camera_bridges?.[sharedSource]?.running:(!!selectedCapture?.running||(data?.capture?.device_id===selected&&!!data?.capture?.running));
  let port=null, expectedSerial=null;
- if(!running){
+ if(!running&&!sharedSource){
   let previous=null;try{previous=JSON.parse(localStorage.getItem('lastCaptureIdentity')||'null')}catch{}
   const candidates=data?.capture?.candidates||[];
   if(selectedCapture?.usb_serial){previous={device_id:selected,usb_serial:selectedCapture.usb_serial}}
@@ -78,7 +79,9 @@ async function toggleCapture(){
  }
  uxState.capturePending=true;const button=$('captureBtn');button.disabled=true;button.setAttribute('aria-busy','true');button.textContent=running?'正在暂停…':'正在恢复…';
  try{
-  await api('/console/capture/'+(running?'stop':'start'),{method:'POST',body:JSON.stringify(port?{port,expected_usb_serial:expectedSerial,device_id:selected}:{device_id:selected})});
+  const route=sharedSource?'/console/camera-bridge/':'/console/capture/';
+  const body=sharedSource?{source:sharedSource}:port?{port,expected_usb_serial:expectedSerial,device_id:selected}:{device_id:selected};
+  await api(route+(running?'stop':'start'),{method:'POST',body:JSON.stringify(body)});
   notify(running?'已暂停采集，历史记录已保留':'已恢复采集，正在读取设备画面');
   if(busy)await refresh();
   await refresh();

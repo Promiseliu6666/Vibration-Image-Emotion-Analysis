@@ -148,6 +148,7 @@ export const constantRoutes = [
     {path:'live',component:()=>import('@/views/xiaozhi/index'),name:'XiaozhiLive',meta:{title:'实时监测',icon:'monitor',xiaozhiView:'live',noCache:true}},
     {path:'history',component:()=>import('@/views/xiaozhi/index'),name:'XiaozhiHistory',meta:{title:'健康记录',icon:'documentation',xiaozhiView:'history',noCache:true}},
     {path:'analytics',component:()=>import('@/views/xiaozhi/index'),name:'XiaozhiAnalytics',meta:{title:'数据分析',icon:'chart',xiaozhiView:'analytics',noCache:true}},
+    {path:'rest',component:()=>import('@/views/interactive-rest/index'),name:'InteractiveRest',meta:{title:'互动休息室',icon:'time',noCache:true}},
     {path:'devices',component:()=>import('@/views/xiaozhi/index'),name:'XiaozhiDevices',meta:{title:'设备管理',icon:'tool',xiaozhiView:'settings',noCache:true}}
   ]},
 

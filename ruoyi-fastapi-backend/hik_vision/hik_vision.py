@@ -8,17 +8,21 @@ import base64
 import asyncio
 import traceback
 import subprocess
+import hmac
+from pathlib import Path
+
+import httpx
 from datetime import datetime
 from fastapi import APIRouter, Query, HTTPException, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
+from fastapi.security.utils import get_authorization_scheme_param
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hik_vision.Vibration_image_algorithm import VibraimageCore
-from hik_vision.camera_contract import (
-    resolve_camera_selection,
-    to_camera_id,
-)
+from hik_vision.camera_contract import resolve_camera_selection, to_camera_id
 from config.get_db import get_db
+from exceptions.exception import AuthException
+from module_admin.service.login_service import LoginService
 from module_xuzhou.service.people_service import PeopleService
 from module_xuzhou.dao.analysis_dao import BinhuaAnalysisDao
 from module_xuzhou.entity.vo.analysis_vo import BinhuaAnalysisModel
@@ -31,7 +35,7 @@ videoController = APIRouter(
 )
 
 # ==================== 摄像头配置 ====================
-RTSP_URL = ""  # Configure CAMERA_RTSP_URL locally.
+RTSP_URL = ""  # Configure CAMERA_RTSP_URL in the local environment.
 LOCAL_CAMERA_INDEX = int(os.getenv("LOCAL_CAMERA_INDEX", "0"))
 SIMILARITY_THRESHOLD = 0.4
 
@@ -75,7 +79,10 @@ video_start_times = {"local": None, "rtsp": None}
 
 RECORD_FPS = 20.0
 RECORD_DURATION = 10.0
-RAW_STREAM_FPS = max(1.0, float(os.getenv("RAW_STREAM_FPS", "12")))
+try:
+    RAW_STREAM_FPS = max(1.0, float(os.getenv('RAW_STREAM_FPS', '12')))
+except ValueError:
+    RAW_STREAM_FPS = 12.0
 
 # ==================== 优化参数 ====================
 FACE_DETECT_INTERVAL = 6
@@ -203,13 +210,15 @@ stable_state = {
 
 import copy,re
 
+def _camera_selection(camera_id='', source='local', device_id=''):
+    try:
+        return resolve_camera_selection(camera_id, source, device_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 def resolve_camera_source(source, device_id=''):
-    if source not in ('local','rtsp','xiaozhi'):
-        raise HTTPException(400,'无效的摄像头来源')
-    if source!='xiaozhi':return source
-    if device_id and not re.fullmatch(r'[A-Za-z0-9:_-]{1,64}',device_id):
-        raise HTTPException(400,'小智设备编号格式不正确')
-    key='xiaozhi'+(':'+device_id if device_id else '')
+    key = _camera_selection(source=source, device_id=device_id).camera_id
     if key not in stable_state:
         if len(stable_state)>64:raise HTTPException(429,'摄像头会话过多，请重启后台释放')
         stable_state[key]=copy.deepcopy(stable_state_template)
@@ -221,13 +230,69 @@ def resolve_camera_source(source, device_id=''):
 stable_state_template=copy.deepcopy(stable_state['local'])
 resolve_camera_source('xiaozhi')
 
+_CAMERA_BRIDGE_KEY = Path(__file__).resolve().parents[2] / '.runtime/camera-bridge-secret.txt'
 
-def resolve_camera_source_request(camera_id='', source='local', device_id=''):
+
+def _camera_bridge_key():
     try:
-        selection = resolve_camera_selection(camera_id, source, device_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return resolve_camera_source(selection.source, selection.device_id)
+        key = _CAMERA_BRIDGE_KEY.read_text(encoding='utf-8').strip()
+    except (OSError, UnicodeError) as exc:
+        raise HTTPException(503, '摄像头共享配置不可用') from exc
+    if not key:
+        raise HTTPException(503, '摄像头共享配置不可用')
+    return key
+
+
+async def _fetch_xiaozhi_devices():
+    key = _camera_bridge_key()
+    try:
+        async with httpx.AsyncClient(trust_env=False, timeout=5) as client:
+            response = await client.get(
+                'http://127.0.0.1:8000/api/camera-source/devices',
+                headers={'X-Camera-Bridge-Key': key},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(503, '小智摄像头服务不可用，请检查设备管理与后台服务') from exc
+    if not isinstance(data, dict) or not isinstance(data.get('devices'), list):
+        raise HTTPException(502, '小智摄像头设备列表格式不正确')
+    return data['devices']
+
+
+async def resolve_registered_camera_source(source, device_id='', *, camera_id=''):
+    selection = _camera_selection(camera_id, source, device_id)
+    if selection.camera_id not in stable_state:
+        devices = await _fetch_xiaozhi_devices()
+        if not any(
+            isinstance(device, dict) and device.get('device_id') == selection.device_id
+            for device in devices
+        ):
+            raise HTTPException(404, '小智摄像头未登记或不是物理设备')
+        return resolve_camera_source(selection.source, selection.device_id)
+    return selection.camera_id
+
+
+async def _authenticate_video_request(request, query_db, allow_image_cookie=False):
+    authorization = request.headers.get('Authorization')
+    scheme, token = get_authorization_scheme_param(authorization)
+    if not authorization and allow_image_cookie and request.headers.get('Sec-Fetch-Site') == 'same-origin':
+        token = request.cookies.get('Admin-Token', '')
+        scheme = 'bearer'
+    if scheme.lower() != 'bearer' or not token.strip() or any(char.isspace() for char in token):
+        raise HTTPException(401, '请先登录健康监测平台')
+    try:
+        return await LoginService.get_current_user(request=request, token=token, query_db=query_db)
+    except AuthException as exc:
+        raise HTTPException(401, '登录已失效，请重新登录健康监测平台') from exc
+
+
+async def _require_video_user(request: Request, query_db: AsyncSession = Depends(get_db)):
+    return await _authenticate_video_request(request, query_db)
+
+
+async def _require_video_stream_user(request: Request, query_db: AsyncSession = Depends(get_db)):
+    return await _authenticate_video_request(request, query_db, allow_image_cookie=True)
 
 async def save_analysis_to_db(db: AsyncSession, source: str, state: dict, results: dict, video_path: str = None):
     try:
@@ -447,7 +512,7 @@ async def recognize_face(db: AsyncSession, frame: np.ndarray, face_rect: tuple, 
         return "Unknown", 0.0
 
 
-@videoController.get("/feed/raw")
+@videoController.get("/feed/raw", dependencies=[Depends(_require_video_stream_user)])
 async def generate_raw_video_stream(
         request: Request,
         camera_id: str = Query(default=''),
@@ -455,7 +520,7 @@ async def generate_raw_video_stream(
         device_id: str = Query(default='')
 ):
     """Stream the shared camera without happiness-analysis overlays."""
-    source = resolve_camera_source_request(camera_id, source, device_id)
+    source = await resolve_registered_camera_source(source, device_id, camera_id=camera_id)
     reader = get_camera_cap(source)
 
     async def generate():
@@ -477,13 +542,8 @@ async def generate_raw_video_stream(
                     + buffer.tobytes()
                     + b'\r\n'
                 )
-                await asyncio.sleep(
-                    max(
-                        0.01,
-                        (1.0 / RAW_STREAM_FPS)
-                        - (time.monotonic() - loop_started),
-                    )
-                )
+                elapsed = time.monotonic() - loop_started
+                await asyncio.sleep(max(0.01, 1.0 / RAW_STREAM_FPS - elapsed))
         finally:
             reader.release()
 
@@ -494,7 +554,7 @@ async def generate_raw_video_stream(
 
 
 # ==================== 主视频流函数（已包含ffmpeg转码后删除AVI功能） ====================
-@videoController.get("/feed/analysis")
+@videoController.get("/feed/analysis", dependencies=[Depends(_require_video_stream_user)])
 async def generate_video_stream(
         request: Request,
         camera_id: str = Query(default=''),
@@ -502,7 +562,7 @@ async def generate_video_stream(
         device_id: str = Query(default=''),
         query_db: AsyncSession = Depends(get_db)
 ):
-    source = resolve_camera_source_request(camera_id, source, device_id)
+    source = await resolve_registered_camera_source(source, device_id, camera_id=camera_id)
 
     active_clients[source] += 1
     print(f"[{source}] 新客户端连接，当前活跃客户端数: {active_clients[source]}")
@@ -798,14 +858,14 @@ async def generate_video_stream(
 
 
 # ==================== 其他接口 ====================
-@videoController.get("/results")
+@videoController.get("/results", dependencies=[Depends(_require_video_user)])
 async def get_analysis_results(
         camera_id: str = Query(default=''),
         source: str = Query(default=''),
         device_id: str = '',
 ):
     if camera_id or source:
-        source = resolve_camera_source_request(camera_id, source or 'local', device_id)
+        source = _camera_selection(camera_id, source, device_id).camera_id
     if source and source in stable_state:
         state = stable_state[source]
         return {
@@ -833,6 +893,7 @@ async def get_analysis_results(
         }
 
     return {
+        "camera_id": source or None,
         "analyzing": False,
         "completed": False,
         "recognizing": False,
@@ -848,40 +909,28 @@ async def get_analysis_results(
     }
 
 
-@videoController.get("/reset")
+@videoController.post("/reset", dependencies=[Depends(_require_video_user)])
 async def reset_analysis(
         camera_id: str = Query(default=''),
         source: str = Query(default=''),
         device_id: str = '',
 ):
     if not camera_id and not source:
-        raise HTTPException(
-            status_code=400,
-            detail="请提供 camera_id 或 source 参数",
-        )
-    source = resolve_camera_source_request(camera_id, source or 'local', device_id)
+        raise HTTPException(400, '请提供 camera_id 或 source 参数')
+    source = _camera_selection(camera_id, source, device_id).camera_id
     if source not in stable_state:
-        raise HTTPException(status_code=400, detail="无效的source参数")
+        raise HTTPException(404, '摄像头分析会话不存在')
 
-    # A reset belongs to the happiness-analysis session. The shared camera hub
-    # stays alive while fatigue or raw previews still consume its frames.
+    # Other consumers may still need the shared capture after an analysis reset.
     if global_caps[source]:
         global_caps[source].release()
         global_caps[source] = None
 
     reset_analysis_state(source)
-    return {
-        "status": "success",
-        "camera_id": source,
-        "message": f"{source} 已重置",
-    }
+    return {"status": "success", "camera_id": source, "message": f"{source} 已重置"}
 
 
 # Authenticated local raw-frame sharing. Analysis overlays never enter Xiaozhi.
-from fastapi import Request
-from fastapi.responses import Response
-from pathlib import Path
-import hmac
 
 @videoController.get('/shared/frame')
 async def shared_camera_frame(
@@ -891,11 +940,10 @@ async def shared_camera_frame(
         device_id: str = ''):
     if request.client is None or request.client.host not in ('127.0.0.1','::1'):
         raise HTTPException(403, '仅允许本机共享摄像头')
-    source = resolve_camera_source_request(camera_id, source, device_id)
-    secret_file = Path(__file__).resolve().parents[2] / '.runtime/camera-bridge-secret.txt'
     supplied = request.headers.get('X-Camera-Bridge-Key', '')
-    if not secret_file.exists() or not hmac.compare_digest(supplied, secret_file.read_text(encoding='utf-8').strip()):
+    if not supplied or not hmac.compare_digest(supplied.encode(), _camera_bridge_key().encode()):
         raise HTTPException(403, '共享摄像头认证失败')
+    source = await resolve_registered_camera_source(source, device_id, camera_id=camera_id)
     if source not in camera_hubs:
         raise HTTPException(400, '无效的摄像头来源')
     hub = camera_hubs[source]
@@ -910,38 +958,13 @@ async def shared_camera_frame(
         await asyncio.sleep(.08)
     raise HTTPException(503, hub.error or '摄像头未返回新画面')
 
-from module_admin.service.login_service import LoginService
-from fastapi import Depends
-
-
-async def _fetch_xiaozhi_camera_devices() -> dict:
-    import httpx
-
-    secret_file = Path(__file__).resolve().parents[2] / '.runtime/camera-bridge-secret.txt'
-    try:
-        async with httpx.AsyncClient(trust_env=False, timeout=8) as client:
-            response = await client.get(
-                'http://127.0.0.1:8000/api/camera-source/devices',
-                headers={
-                    'X-Camera-Bridge-Key': secret_file.read_text(encoding='utf-8').strip()
-                },
-            )
-            response.raise_for_status()
-            return response.json()
-    except Exception as exc:
-        raise HTTPException(
-            503,
-            '小智服务未连接，请检查设备管理与后台服务',
-        ) from exc
-
-
-@videoController.get('/cameras')
-async def camera_catalog(user=Depends(LoginService.get_current_user)):
+@videoController.get('/cameras', dependencies=[Depends(_require_video_user)])
+async def camera_catalog():
     xiaozhi_error = ''
     try:
-        xiaozhi_payload = await _fetch_xiaozhi_camera_devices()
+        devices = await _fetch_xiaozhi_devices()
     except HTTPException as exc:
-        xiaozhi_payload = {'devices': []}
+        devices = []
         xiaozhi_error = str(exc.detail)
     cameras = [
         {
@@ -963,12 +986,18 @@ async def camera_catalog(user=Depends(LoginService.get_current_user)):
             'detail': '网络视频' if RTSP_URL.strip() else '尚未配置地址',
         },
     ]
-    for device in xiaozhi_payload.get('devices', []):
-        device_id = str(device.get('device_id') or '').strip()
+    seen = set()
+    for device in devices:
+        if not isinstance(device, dict):
+            continue
+        device_id = device.get('device_id')
+        if not isinstance(device_id, str) or not device_id or device_id in seen:
+            continue
         try:
             camera_id = to_camera_id('xiaozhi', device_id)
         except ValueError:
             continue
+        seen.add(device_id)
         cameras.append({
             'camera_id': camera_id,
             'source': 'xiaozhi',
@@ -985,6 +1014,6 @@ async def camera_catalog(user=Depends(LoginService.get_current_user)):
     }
 
 
-@videoController.get('/xiaozhi/devices')
-async def xiaozhi_camera_devices(user=Depends(LoginService.get_current_user)):
-    return await _fetch_xiaozhi_camera_devices()
+@videoController.get('/xiaozhi/devices', dependencies=[Depends(_require_video_user)])
+async def xiaozhi_camera_devices():
+    return {'devices': await _fetch_xiaozhi_devices()}

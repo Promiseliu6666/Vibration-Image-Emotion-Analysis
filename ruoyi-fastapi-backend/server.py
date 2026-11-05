@@ -152,3 +152,6 @@ app.include_router(router=managerCompatController, tags=['Manager API Compatibil
 
 from xiaozhi_integration import router as xiaozhi_integration_router
 app.include_router(xiaozhi_integration_router)
+
+from module_interaction.rest_controller import rest_controller
+app.include_router(rest_controller, tags=["互动休息室"])

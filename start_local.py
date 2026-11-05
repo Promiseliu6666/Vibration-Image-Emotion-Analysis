@@ -1,6 +1,13 @@
 from pathlib import Path
 import os,socket,subprocess,time,shutil,json,urllib.error,urllib.request
 root=Path(__file__).resolve().parent
+desktop_launcher = root.parent / 'start_interactive_rest.py'
+if __name__ == '__main__' and desktop_launcher.is_file():
+    import sys
+    sys.path.insert(0, str(desktop_launcher.parent))
+    from start_interactive_rest import HOME_URL, run
+    raise SystemExit(run(HOME_URL))
+
 b=root/'ruoyi-fastapi-backend';f=root/'ruoyi-fastapi-frontend';x=root/'xiaozhi-study'
 fatigue=root/'fatigue_model_bundle'
 logs=root/'.runtime/logs';logs.mkdir(parents=True,exist_ok=True)
@@ -87,18 +94,29 @@ for _ in range(60):
  time.sleep(1)
 if not http_ready('http://127.0.0.1:9099/openapi.json'):print('Warning: main backend is still starting on port 9099')
 if not http_ready('http://127.0.0.1:8000/'):print('Warning: Xiaozhi backend is still starting on port 8000')
-# stop_local also stops USB capture; restore only previously enabled, known units.
-if http_ready('http://127.0.0.1:8000/'):
+# Resume only after confirming the service on port 8000 is Xiaozhi.
+def xiaozhi_ready():
+ try:
+  opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+  with opener.open('http://127.0.0.1:8000/openapi.json',timeout=2) as response:
+   paths=json.load(response).get('paths',{})
+   return all(path in paths for path in ('/api/portal/exchange','/api/camera-source/devices'))
+ except (OSError,ValueError,AttributeError,TypeError):
+  return False
+
+if os.getenv("XIAOZHI_RESUME_USB", "1") != "0" and xiaozhi_ready():
  try:
   result=subprocess.run(
    [str(xpython),'-c','import json; from app.device.capture_control import resume_registered; print(json.dumps(resume_registered(), ensure_ascii=False))'],
    cwd=x,capture_output=True,text=True,encoding='utf-8',timeout=20,
    creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),
   )
-  if result.returncode==0:print('Xiaozhi USB capture:',result.stdout.strip())
-  else:print('Warning: USB capture could not resume; check the Xiaozhi device manager.',result.stderr.strip())
- except (OSError,subprocess.TimeoutExpired) as exc:
-  print('Warning: USB capture could not resume:',exc)
+  if result.returncode == 0:
+   restored=json.loads(result.stdout.splitlines()[-1])
+   print('Xiaozhi USB capture:',len(restored['collectors']),'resumed,',len(restored['errors']),'failed.')
+  else:print('Warning: USB capture could not resume; check the Xiaozhi device manager.')
+ except (OSError,ValueError,KeyError,IndexError,subprocess.TimeoutExpired):
+  print('Warning: USB capture could not resume; check the Xiaozhi device manager.')
 for _ in range(20):
  if http_ready(f'http://127.0.0.1:{fatigue_port}/health'):break
  time.sleep(.5)

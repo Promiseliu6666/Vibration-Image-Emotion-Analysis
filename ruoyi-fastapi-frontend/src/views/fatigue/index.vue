@@ -8,7 +8,7 @@
       </div>
       <div class="page-intro__controls">
         <CameraSwitcher />
-        <el-button :loading="resetting" @click="restartSession">
+        <el-button :loading="resetting" :disabled="!sourceQuery" @click="restartSession">
           <el-icon><Refresh /></el-icon>
           重新检测
         </el-button>
@@ -30,6 +30,7 @@
             :style="{ aspectRatio: videoAspectRatio }"
           >
           <img
+            v-if="videoStreamUrl"
             ref="videoImg"
             :key="`${cameraStore.cameraId}-${streamKey}`"
             :src="videoStreamUrl"
@@ -88,8 +89,8 @@
           <div class="video-vignette" aria-hidden="true"></div>
           <div v-if="videoState !== 'online'" class="video-placeholder">
             <el-icon :size="34"><VideoCamera /></el-icon>
-            <strong>{{ videoState === 'error' ? '视频连接失败' : '正在连接摄像头' }}</strong>
-            <span>{{ videoState === 'error' ? videoError : '请稍候，画面将在连接后出现' }}</span>
+            <strong>{{ !sourceQuery ? '请选择小智设备' : videoState === 'error' ? '视频连接失败' : '正在连接摄像头' }}</strong>
+            <span>{{ !sourceQuery ? '选择已接入的摄像头后开始监测' : videoState === 'error' ? videoError : '请稍候，画面将在连接后出现' }}</span>
           </div>
           <div class="video-signal" :class="{ 'is-active': result.face_detected }">
             <span></span>
@@ -501,6 +502,7 @@ import { ElMessage, ElTooltip } from 'element-plus'
 import CameraSwitcher from '@/components/CameraSwitcher/index.vue'
 import useCameraStore from '@/store/modules/camera'
 import { cameraQueryString } from '@/utils/camera'
+import { getToken } from '@/utils/auth'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
 const cameraStore = useCameraStore()
@@ -547,12 +549,14 @@ const emptyResult = () => ({
 
 const result = ref(emptyResult())
 
-const sourceQuery = computed(() => cameraQueryString(cameraStore.cameraId))
+const sourceQuery = computed(() => {
+  if (cameraStore.source === 'xiaozhi' && !cameraStore.xiaozhiDeviceId) return ''
+  return cameraQueryString(cameraStore.cameraId)
+})
 
-const videoStreamUrl = computed(
-  () => `${baseURL}/video/feed/raw?${sourceQuery.value}` +
-    `&stream=${streamKey.value}`
-)
+const videoStreamUrl = computed(() => sourceQuery.value
+  ? `${baseURL}/video/feed/raw?${sourceQuery.value}&stream=${streamKey.value}`
+  : '')
 
 const cameraLabel = computed(() => cameraStore.cameraLabel)
 
@@ -609,6 +613,7 @@ const warmupHint = computed(() => {
 })
 
 const statusMessage = computed(() => {
+  if (!sourceQuery.value) return '等待选择小智摄像头'
   if (videoState.value === 'error') return '摄像头画面暂不可用'
   if (serviceError.value) return '视频已连接，等待疲劳检测服务'
   return result.value.message || '正在连接疲劳检测服务'
@@ -752,93 +757,108 @@ function toggleDetectionBoxes() {
   showBoxes.value = !showBoxes.value
 }
 
-async function fetchResults() {
-  try {
-    const response = await fetch(
-      `${baseURL}/fatigue/results?${sourceQuery.value}&_=${Date.now()}`
-    )
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      throw new Error(data.detail || data.message || '疲劳检测服务返回异常')
-    }
-    result.value = { ...emptyResult(), ...data }
-    serviceError.value = data.ok === false ? data.message : ''
-  } catch (error) {
-    serviceError.value = error.message || '无法连接疲劳检测服务'
+const authHeaders = () => ({ Authorization: `Bearer ${getToken() || ''}` })
+
+async function requestFatigue(action, query, signal, method = 'GET') {
+  const response = await fetch(`${baseURL}/fatigue/${action}?${query}`, {
+    method, signal, headers: authHeaders(), cache: 'no-store'
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok || !data || data.ok === false) {
+    throw new Error(data?.detail || data?.message || data?.msg || '疲劳检测服务返回异常')
   }
+  return data
 }
 
-async function resetRemoteSession() {
-  try {
-    const response = await fetch(
-      `${baseURL}/fatigue/reset?${sourceQuery.value}`,
-      { method: 'POST' }
-    )
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}))
-      throw new Error(data.detail || data.message || '重置失败')
+let pollTimer = null
+let pollController = null
+let resetController = null
+
+function stopPolling() {
+  clearTimeout(pollTimer)
+  pollController?.abort()
+  pollController = null
+}
+
+function startPolling() {
+  stopPolling()
+  const query = sourceQuery.value
+  if (!query || resetting.value || document.hidden) return
+  const controller = new AbortController()
+  pollController = controller
+
+  async function poll() {
+    try {
+      const data = await requestFatigue('results', query, controller.signal)
+      if (controller.signal.aborted || query !== sourceQuery.value) return
+      result.value = { ...emptyResult(), ...data }
+      serviceError.value = ''
+    } catch (error) {
+      if (!controller.signal.aborted && query === sourceQuery.value) {
+        result.value = emptyResult()
+        serviceError.value = error.message
+      }
+    } finally {
+      if (!controller.signal.aborted) pollTimer = setTimeout(poll, 1200)
     }
-  } catch (error) {
-    serviceError.value = error.message || '无法连接疲劳检测服务'
   }
+
+  poll()
 }
 
 async function restartSession() {
-  resetting.value = true
+  const query = sourceQuery.value
+  if (!query || resetting.value) return
   stopPolling()
-  result.value = emptyResult()
+  const controller = new AbortController()
+  resetController = controller
+  resetting.value = true
   serviceError.value = ''
-  streamKey.value += 1
   try {
-    await resetRemoteSession()
-    startPolling()
+    await requestFatigue('reset', query, controller.signal, 'POST')
+    if (controller.signal.aborted || query !== sourceQuery.value) return
+    result.value = emptyResult()
+    videoState.value = 'connecting'
+    streamKey.value += 1
     ElMessage.success('已重新开始疲劳检测')
+  } catch (error) {
+    if (!controller.signal.aborted && query === sourceQuery.value) {
+      serviceError.value = error.message
+    }
   } finally {
-    resetting.value = false
+    if (resetController === controller) {
+      resetController = null
+      resetting.value = false
+      startPolling()
+    }
   }
 }
 
 function onVideoLoad(event) {
+  const image = event.currentTarget
+  if (image !== videoImg.value) return
   videoState.value = 'online'
   videoError.value = ''
-  const image = event?.currentTarget
-  if (image?.naturalWidth && image?.naturalHeight) {
+  if (image.naturalWidth && image.naturalHeight) {
     videoSize.value = { width: image.naturalWidth, height: image.naturalHeight }
   }
 }
 
-function onVideoError() {
+function onVideoError(event) {
+  if (event.currentTarget !== videoImg.value) return
   videoState.value = 'error'
   videoError.value = '请检查摄像头连接，或在设备管理中启动小智摄像头采集'
 }
 
-let pollTimer = null
-let sourceWatchReady = false
-
-function startPolling() {
-  stopPolling()
-  fetchResults()
-  pollTimer = setInterval(fetchResults, 1200)
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
 function handleVisibilityChange() {
-  if (document.hidden) {
-    stopPolling()
-  } else {
-    startPolling()
-  }
+  if (document.hidden) stopPolling()
+  else startPolling()
 }
 
-watch(() => cameraStore.cameraId, () => {
-  if (!sourceWatchReady) return
-  stopPolling()
+watch(sourceQuery, () => {
+  resetController?.abort()
+  resetController = null
+  resetting.value = false
   result.value = emptyResult()
   serviceError.value = ''
   videoState.value = 'connecting'
@@ -846,20 +866,15 @@ watch(() => cameraStore.cameraId, () => {
   startPolling()
 })
 
-onMounted(async () => {
-  try {
-    await cameraStore.loadXiaozhiDevices()
-  } catch {
-    // The camera control displays the device-list failure.
-  }
-  sourceWatchReady = true
+onMounted(() => {
   startPolling()
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
   stopPolling()
-  if (videoImg.value) videoImg.value.src = ''
+  resetController?.abort()
+  resetController = null
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>

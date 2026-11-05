@@ -5,17 +5,21 @@ if(window.parent!==window&&portalOrigin){
  window.addEventListener('message',e=>{
   if(e.source!==parent||e.origin!==portalOrigin)return;
   if(e.data?.type==='employee-bridge-clear'){
-   localStorage.removeItem('token');document.cookie='Admin-Token=; path=/; Max-Age=0; SameSite=Lax';parent.postMessage({type:'employee-bridge-cleared'},portalOrigin);return;
+   sessionStorage.removeItem('health-portal-token');parent.postMessage({type:'employee-bridge-cleared'},portalOrigin);return;
   }
   if(e.data?.type!=='employee-bridge-auth'||typeof e.data.token!=='string'||!e.data.token||e.data.token.length>8192)return;
-  const xiaozhi=location.port==='8000';
+  const xiaozhi=location.port==='8000', params=new URLSearchParams(location.search), embedded=params.get('embedded')==='health';
   const deviceId=typeof e.data.deviceId==='string'&&/^[A-Za-z0-9:_-]{1,64}$/.test(e.data.deviceId)?e.data.deviceId:'';
-  if(xiaozhi){localStorage.setItem('token',e.data.token);if(deviceId){localStorage.setItem('selectedDevice',deviceId);localStorage.setItem('previewVisible','true');}}
+  if(xiaozhi){
+   if(embedded)sessionStorage.setItem('health-portal-token',e.data.token);else localStorage.setItem('token',e.data.token);
+   if(deviceId){localStorage.setItem('selectedDevice',deviceId);localStorage.setItem('previewVisible','true');}
+  }
   else document.cookie='Admin-Token='+encodeURIComponent(e.data.token)+'; path=/; SameSite=Lax';
   parent.postMessage({type:'employee-bridge-complete'},portalOrigin);
-  const params=new URLSearchParams(location.search);const view=['live','history','analytics','settings'].includes(params.get('view'))?params.get('view'):'live';
-  location.replace(xiaozhi?'/static/dashboard.html'+(params.get('embedded')==='health'?'?embedded=health&view='+view+'#'+view:''):'/camera/live');
+  const view=['live','history','analytics','settings'].includes(params.get('view'))?params.get('view'):'live';
+  location.replace(xiaozhi?'/static/dashboard.html'+(embedded?'?embedded=health&portal='+encodeURIComponent(portalOrigin)+'&view='+view+'#'+view:''):'/camera/live');
  });
  parent.postMessage({type:'employee-bridge-ready'},portalOrigin);
 }else document.querySelector('p').textContent='请从健康监测平台进入此项目。';
 </script></body></html>
+

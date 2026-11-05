@@ -19,6 +19,7 @@
     "@ant-design/icons-vue": "^7.0.1",
     "@antv/g2plot": "^2.4.31",
     "@element-plus/icons-vue": "2.3.1",
+    "@mediapipe/tasks-vision": "0.10.32",
     "@vueup/vue-quill": "1.2.0",
     "@vueuse/core": "10.11.0",
     "ant-design-vue": "^4.1.1",

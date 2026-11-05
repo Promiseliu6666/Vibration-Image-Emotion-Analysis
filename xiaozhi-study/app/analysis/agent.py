@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from collections import deque
 from openai import OpenAI
 
+from pathlib import Path
 from app.core.paths import PROJECT_ROOT
 
 _dotenv_loaded = False
@@ -27,9 +28,11 @@ def _load_env():
     global _dotenv_loaded
     if _dotenv_loaded:
         return
-    env_path = str(PROJECT_ROOT / '.env')
-    if os.path.exists(env_path):
-        with open(env_path) as f:
+    env_path = Path(os.getenv('XIAOZHI_ENV_FILE') or PROJECT_ROOT / '.env').expanduser()
+    if not env_path.is_absolute():
+        env_path = PROJECT_ROOT / env_path
+    if env_path.is_file():
+        with env_path.open(encoding='utf-8-sig') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:

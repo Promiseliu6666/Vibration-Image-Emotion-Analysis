@@ -85,11 +85,12 @@ const useCameraStore = defineStore('camera', {
             }
           ]
 
-      if (!options.some(option => option.source === 'xiaozhi')) {
+      const hasPhysicalCameras = options.some(option => option.source === 'xiaozhi')
+      if (!hasPhysicalCameras || state.cameraId === 'xiaozhi') {
         options.push({
           id: 'xiaozhi',
           label: '小智摄像头',
-          detail: state.loadingDevices ? '正在查找' : '暂无设备',
+          detail: state.loadingDevices ? '正在查找' : hasPhysicalCameras ? '请选择设备' : '暂无设备',
           online: false,
           source: 'xiaozhi'
         })
@@ -133,15 +134,12 @@ const useCameraStore = defineStore('camera', {
           this.lastDeviceSync = Date.now()
           this.deviceError = response?.xiaozhi_error || ''
 
-          if (this.source === 'xiaozhi') {
+          if (this.source === 'xiaozhi' && !this.deviceError) {
             const currentStillExists = this.xiaozhiDevices.some(
               device => device.device_id === this.xiaozhiDeviceId
             )
             if (!currentStillExists) {
-              const nextDevice = (
-                this.xiaozhiDevices.find(device => device.online)
-                || this.xiaozhiDevices[0]
-              )
+              const nextDevice = this.xiaozhiDevices.find(device => device.online)
               this.selectCamera(
                 toCameraId('xiaozhi', nextDevice?.device_id || '')
               )

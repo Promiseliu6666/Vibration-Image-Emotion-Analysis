@@ -175,3 +175,7 @@ error_solution.md
 **/*.pt
 **/*.pth
 **/*.ckpt
+
+# Authored frontend entry points and tests
+!ruoyi-fastapi-frontend/scripts/preview-interactive.mjs
+!ruoyi-fastapi-frontend/tests/rest-gestures.test.mjs

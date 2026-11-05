@@ -7,6 +7,7 @@ import jwt
 from fastapi import Depends, Form, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt.exceptions import InvalidTokenError
+from redis.exceptions import WatchError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.constant import CommonConstant, MenuConstant
@@ -19,7 +20,7 @@ from module_admin.dao.user_dao import UserDao
 from module_admin.entity.do.menu_do import SysMenu
 from module_admin.entity.vo.common_vo import CrudResponseModel
 from module_admin.entity.vo.login_vo import MenuTreeModel, MetaModel, RouterModel, SmsCode, UserLogin, UserRegister
-from module_admin.entity.vo.user_vo import AddUserModel, CurrentUserModel, ResetUserModel, TokenData, UserInfoModel
+from module_admin.entity.vo.user_vo import AddUserModel, CurrentUserModel, ResetUserModel, UserInfoModel
 from module_admin.service.user_service import UserService
 from utils.common_util import CamelCaseUtil
 from utils.log_util import logger
@@ -182,60 +183,51 @@ class LoginService:
         encoded_jwt = jwt.encode(to_encode, JwtConfig.jwt_secret_key, algorithm=JwtConfig.jwt_algorithm)
         return encoded_jwt
 
+    @staticmethod
+    def access_token_key(user_id, session_id):
+        key_id = session_id if AppConfig.app_same_time_login else user_id
+        if not key_id:
+            raise AuthException(data='', message='用户令牌不合法')
+        return f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{key_id}'
+
+    @staticmethod
+    def decode_access_token(token: Optional[str], *, verify_exp: bool = True):
+        token = (token or '').strip()
+        if token[:7].lower() == 'bearer ':
+            token = token[7:].strip()
+        if not token:
+            raise AuthException(data='', message='请先登录系统')
+        try:
+            payload = jwt.decode(
+                token, JwtConfig.jwt_secret_key, algorithms=[JwtConfig.jwt_algorithm],
+                options={'verify_exp': verify_exp},
+            )
+            user_id = int(payload['user_id'])
+            if user_id <= 0:
+                raise ValueError('invalid user ID')
+        except (InvalidTokenError, KeyError, TypeError, ValueError) as exc:
+            raise AuthException(data='', message='用户token已失效，请重新登录') from exc
+        return token, user_id, payload.get('session_id')
+
     @classmethod
     async def get_current_user(
-        cls, request: Request = Request, token: str = Depends(oauth2_scheme), query_db: AsyncSession = Depends(get_db)
+        cls, request: Request = Request, token: Optional[str] = Depends(oauth2_scheme),
+        query_db: AsyncSession = Depends(get_db),
     ):
-        """
-        根据token获取当前用户信息
-
-        :param request: Request对象
-        :param token: 用户token
-        :param query_db: orm对象
-        :return: 当前用户信息对象
-        :raise: 令牌异常AuthException
-        """
-        # if token[:6] != 'Bearer':
-        #     logger.warning("用户token不合法")
-        #     raise AuthException(data="", message="用户token不合法")
-        try:
-            if token.startswith('Bearer'):
-                token = token.split(' ')[1]
-            payload = jwt.decode(token, JwtConfig.jwt_secret_key, algorithms=[JwtConfig.jwt_algorithm])
-            user_id: str = payload.get('user_id')
-            session_id: str = payload.get('session_id')
-            if not user_id:
-                logger.warning('用户token不合法')
-                raise AuthException(data='', message='用户token不合法')
-            token_data = TokenData(user_id=int(user_id))
-        except InvalidTokenError:
-            logger.warning('用户token已失效，请重新登录')
-            raise AuthException(data='', message='用户token已失效，请重新登录')
-        query_user = await UserDao.get_user_by_id(query_db, user_id=token_data.user_id)
+        """Resolve the user from an active login session."""
+        token, user_id, session_id = cls.decode_access_token(token)
+        key = cls.access_token_key(user_id, session_id)
+        redis = request.app.state.redis
+        query_user = await UserDao.get_user_by_id(query_db, user_id=user_id)
         if query_user.get('user_basic_info') is None:
             logger.warning('用户token不合法')
             raise AuthException(data='', message='用户token不合法')
-        if AppConfig.app_same_time_login:
-            redis_token = await request.app.state.redis.get(f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}')
-        else:
-            # 此方法可实现同一账号同一时间只能登录一次
-            redis_token = await request.app.state.redis.get(
-                f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{query_user.get("user_basic_info").user_id}'
-            )
-        if token == redis_token:
-            if AppConfig.app_same_time_login:
-                await request.app.state.redis.set(
-                    f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}',
-                    redis_token,
-                    ex=timedelta(minutes=JwtConfig.jwt_redis_expire_minutes),
-                )
-            else:
-                await request.app.state.redis.set(
-                    f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{query_user.get("user_basic_info").user_id}',
-                    redis_token,
-                    ex=timedelta(minutes=JwtConfig.jwt_redis_expire_minutes),
-                )
-
+        # Verify after the database lookup, so a replacement login during the
+        # lookup cannot authenticate this request using the old token.
+        if await redis.get(key) != token:
+            raise AuthException(data='', message='用户token已失效，请重新登录')
+        # Extend the current key without recreating a session deleted by logout.
+        if await redis.expire(key, timedelta(minutes=JwtConfig.jwt_redis_expire_minutes)):
             role_id_list = [item.role_id for item in query_user.get('user_role_info')]
             if 1 in role_id_list:
                 permissions = ['*:*:*']
@@ -468,19 +460,23 @@ class LoginService:
         return CrudResponseModel(**result)
 
     @classmethod
-    async def logout_services(cls, request: Request, session_id: str):
-        """
-        退出登录services
-
-        :param request: Request对象
-        :param session_id: 会话编号
-        :return: 退出登录结果
-        """
-        await request.app.state.redis.delete(f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}')
-        # await request.app.state.redis.delete(f'{current_user.user.user_id}_access_token')
-        # await request.app.state.redis.delete(f'{current_user.user.user_id}_session_id')
-
-        return True
+    async def logout_services(cls, request: Request, token: Optional[str]):
+        token, user_id, session_id = cls.decode_access_token(token, verify_exp=False)
+        key = cls.access_token_key(user_id, session_id)
+        redis = request.app.state.redis
+        for _ in range(4):
+            async with redis.pipeline() as pipeline:
+                try:
+                    await pipeline.watch(key)
+                    if await pipeline.get(key) != token:
+                        return
+                    pipeline.multi()
+                    pipeline.delete(key)
+                    await pipeline.execute()
+                    return
+                except WatchError:
+                    continue
+        raise ServiceException(message='会话正在更新，请重试退出登录')
 
     @classmethod
     async def generate_api_token(cls, redis):
@@ -490,8 +486,6 @@ class LoginService:
 
         # 存储Token到Redis（使用Hash结构）
         redis_key = f'api_token_key:{user_id}'
-        await redis.delete(redis_key)  # 先清除旧Token
-
         # 存储新Token（包含用户信息和过期时间）
         await redis.hset(
             redis_key,

@@ -1,5 +1,5 @@
 /* Behavior reminders remain until explicitly acknowledged. */
-const behaviorAlertKey=(()=>{try{const part=(localStorage.getItem('token')||'').split('.')[1].replace(/-/g,'+').replace(/_/g,'/');return 'behavior-alerts:'+JSON.parse(atob(part)).sub}catch{return 'behavior-alerts:session'}})();
+const behaviorAlertKey=(()=>{try{const part=(xiaozhiAuth.get()||'').split('.')[1].replace(/-/g,'+').replace(/_/g,'/');return 'behavior-alerts:'+JSON.parse(atob(part)).sub}catch{return 'behavior-alerts:session'}})();
 let behaviorAlertStore={items:[],acknowledged:{}};
 try{const saved=JSON.parse(sessionStorage.getItem(behaviorAlertKey)||'null');if(saved&&Array.isArray(saved.items)&&saved.acknowledged)behaviorAlertStore=saved}catch{}
 function saveBehaviorAlerts(){try{sessionStorage.setItem(behaviorAlertKey,JSON.stringify(behaviorAlertStore))}catch{}}

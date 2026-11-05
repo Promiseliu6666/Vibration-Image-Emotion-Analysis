@@ -2,14 +2,14 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-import jwt
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.enums import BusinessType, RedisInitKeyConfig
-from config.env import AppConfig, JwtConfig
+from config.env import JwtConfig
 from config.get_db import get_db
 from module_admin.annotation.log_annotation import Log
+from module_admin.aspect.interface_auth import CheckUserInterfaceAuth
 from module_admin.entity.vo.common_vo import CrudResponseModel
 from module_admin.entity.vo.login_vo import UserLogin, UserRegister, Token
 from module_admin.entity.vo.user_vo import CurrentUserModel, EditUserModel
@@ -53,19 +53,11 @@ async def login(
         },
         expires_delta=access_token_expires,
     )
-    if AppConfig.app_same_time_login:
-        await request.app.state.redis.set(
-            f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{session_id}',
-            access_token,
-            ex=timedelta(minutes=JwtConfig.jwt_redis_expire_minutes),
-        )
-    else:
-        # 此方法可实现同一账号同一时间只能登录一次
-        await request.app.state.redis.set(
-            f'{RedisInitKeyConfig.ACCESS_TOKEN.key}:{result[0].user_id}',
-            access_token,
-            ex=timedelta(minutes=JwtConfig.jwt_redis_expire_minutes),
-        )
+    await request.app.state.redis.set(
+        LoginService.access_token_key(result[0].user_id, session_id),
+        access_token,
+        ex=timedelta(minutes=JwtConfig.jwt_redis_expire_minutes),
+    )
     await UserService.edit_user_services(
         query_db, EditUserModel(userId=result[0].user_id, loginDate=datetime.now(), type='status')
     )
@@ -78,8 +70,8 @@ async def login(
     return ResponseUtil.success(msg='登录成功', dict_content={'token': access_token})
 
 
-@loginController.post('/generateToken', response_model=Token)
-async def generate_api_token(request: Request, query_db: AsyncSession = Depends(get_db)):
+@loginController.post('/generateToken', response_model=Token, dependencies=[Depends(CheckUserInterfaceAuth('*:*:*'))])
+async def generate_api_token(request: Request):
     # 生成API Token
     redis = request.app.state.redis
     api_token = await LoginService.generate_api_token(redis)
@@ -88,7 +80,7 @@ async def generate_api_token(request: Request, query_db: AsyncSession = Depends(
     return ResponseUtil.success(msg='登录成功', dict_content={'api_token': api_token})
 
 
-@loginController.get('/getApiKey', response_model=Token)
+@loginController.get('/getApiKey', response_model=Token, dependencies=[Depends(CheckUserInterfaceAuth('*:*:*'))])
 async def get_api_key(request: Request):
     # 查询API Key
     redis = request.app.state.redis
@@ -172,11 +164,7 @@ async def register_user(request: Request, user_register: UserRegister, query_db:
 
 @loginController.post('/logout')
 async def logout(request: Request, token: Optional[str] = Depends(oauth2_scheme)):
-    payload = jwt.decode(
-        token, JwtConfig.jwt_secret_key, algorithms=[JwtConfig.jwt_algorithm], options={'verify_exp': False}
-    )
-    session_id: str = payload.get('session_id')
-    await LoginService.logout_services(request, session_id)
+    await LoginService.logout_services(request, token)
     logger.info('退出成功')
 
     return ResponseUtil.success(msg='退出成功')

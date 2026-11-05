@@ -7,12 +7,11 @@
         <div class="control-group">
           <CameraSwitcher size="small" compact />
         </div>
-<div class="control-group">
+        <div class="control-group">
           <el-button
             type="warning"
             size="small"
             @click="resetParams"
-            :loading="resetLoading"
           >
             <el-icon><Refresh /></el-icon>
             刷新
@@ -54,7 +53,7 @@
     <!-- 主内容区 -->
     <div class="main-content" :class="{ 'main-content--with-email': emailStatus !== 'idle' }">
       <!-- 左侧：视频流 -->
-      <div class="video-section">
+      <div v-if="viewActive" class="video-section">
         <div v-if="cameraSource==='xiaozhi'&&parallelPreview" class="parallel-cameras">
           <div v-for="device in xiaozhiDevices" :key="device.device_id" class="parallel-camera" :class="{selected:xiaozhiDevice===device.device_id}" @click="xiaozhiDevice=device.device_id">
             <header><strong>{{ device.name }}</strong><span>{{ device.online?'在线':'未出图' }}</span></header>
@@ -66,9 +65,10 @@
         </div>
         <div v-else class="video-wrapper">
           <img
+            v-if="videoStreamUrl"
             ref="videoImg"
             :src="videoStreamUrl"
-            :key="cameraSource+xiaozhiDevice+streamKey"
+            :key="videoStreamUrl"
             alt="实时视频流"
             class="video-stream"
             @load="onVideoLoad"
@@ -185,8 +185,8 @@
               <p><strong>幸福指数说明：</strong></p>
               <ul>
                 <li><strong>幸福指数</strong>：综合评估当前心理状态 (1-100分)</li>
-                <li><strong>幸福等级</strong>：≥80分"幸福达标"，≥60分"幸福待提升"，<60分"幸福预警"</li>
-                <li><strong>安全风险</strong>：≥70分"低风险"，≥40分"中风险"，<40分"高风险"</li>
+                <li><strong>幸福等级</strong>：≥80分"幸福达标"，≥60分"幸福待提升"，&lt;60分"幸福预警"</li>
+                <li><strong>安全风险</strong>：≥70分"低风险"，≥40分"中风险"，&lt;40分"高风险"</li>
                 <li><strong>检测规则</strong>：人脸稳定后积累有效画面；匹配人员后才关联档案保存</li>
               </ul>
             </div>
@@ -272,51 +272,45 @@
 </template>
 
 <script setup>
-import {
-  ref,
-  computed,
-  watch,
-  onMounted,
-  onBeforeUnmount,
-  onUnmounted,
-  onActivated,
-  onDeactivated
-} from 'vue'
+import { ref, computed, watch, onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request'
-import { Message, Refresh, User } from '@element-plus/icons-vue'
+import { getToken } from '@/utils/auth'
 import CameraSwitcher from '@/components/CameraSwitcher/index.vue'
 import useCameraStore from '@/store/modules/camera'
 import { cameraQueryString, toCameraId } from '@/utils/camera'
+import { Message, Refresh, User } from '@element-plus/icons-vue'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
-const cameraStore = useCameraStore()
 
 // ==================== 状态管理 ====================
-const parallelPreview = ref(false)
+const cameraStore = useCameraStore()
+const viewActive = ref(true)
 const cameraSource = computed(() => cameraStore.source)
 const xiaozhiDevice = computed({
   get: () => cameraStore.xiaozhiDeviceId,
-  set: deviceId => cameraStore.selectCamera(toCameraId('xiaozhi', deviceId))
+  set: id => cameraStore.selectCamera(toCameraId('xiaozhi', id))
 })
 const xiaozhiDevices = computed(() => cameraStore.xiaozhiDevices)
-const xiaozhiSourceError = computed(() => {
-  if (cameraStore.deviceError) return cameraStore.deviceError
-  return cameraStore.xiaozhiDevices.length ? '' : '尚未连接小智设备，请到设备管理接入'
+const xiaozhiSourceError = computed(() => cameraStore.deviceError ||
+  (xiaozhiDevices.value.length ? '' : '尚未连接小智设备，请到设备管理接入'))
+const parallelPreview = ref(false)
+const streamRevision = ref(0)
+const parallelRevisions = ref(new Map())
+const deviceStreamUrl = id => {
+  const query = cameraQueryString(toCameraId('xiaozhi', id))
+  return `${baseURL}/video/feed/analysis?${query}&t=${parallelRevisions.value.get(id) || 0}`
+}
+const sourceQuery = computed(() => {
+  if (cameraSource.value === 'xiaozhi' && !xiaozhiDevice.value) return ''
+  return cameraQueryString(cameraStore.cameraId)
 })
-const deviceStreamUrl = deviceId => (
-  `${baseURL}/video/feed/analysis?${cameraQueryString(toCameraId('xiaozhi', deviceId))}`
-)
-const sourceQuery = computed(() => cameraQueryString(cameraStore.cameraId))
-const streamKey = ref(0)
+const authHeaders = () => ({ Authorization: `Bearer ${getToken() || ''}` })
 const videoStatus = ref('connecting')
 const statusText = ref('连接中...')
 const showConnectionTip = ref(false)
 const connectionTipText = ref('')
-const resetLoading = ref(false)
 const reconnectAttempts = ref(0)
 const MAX_RECONNECT_ATTEMPTS = 3
-const shouldPolling = ref(true)
 const isAnalyzing = ref(false)
 const hasAnalysisResults=ref(false)
 const analysisMessage=ref('等待清晰人脸画面')
@@ -340,7 +334,9 @@ const emailFeedbackTitle = computed(() => ({
 const emailTimestamp = computed(() => emailUpdatedAt.value
   ? new Date(emailUpdatedAt.value * 1000).toLocaleString('zh-CN', { hour12: false })
   : '')
-let pollTimer = null
+let pollTimer
+let pendingResults
+let reconnectTimer
 
 const isShowE1E10 = ref(false)
 
@@ -407,10 +403,9 @@ const numberFormat = (value) => {
 }
 
 // ==================== 视频流URL ====================
-const videoStreamUrl = computed(() => {
-  const timestamp = new Date().getTime()
-  return `${baseURL}/video/feed/analysis?${sourceQuery.value}&t=${timestamp}&stream=${streamKey.value}`
-})
+const videoStreamUrl = computed(() => sourceQuery.value
+  ? `${baseURL}/video/feed/analysis?${sourceQuery.value}&t=${streamRevision.value}`
+  : '')
 
 // ==================== 幸福指数计算（与后端同步）====================
 const calculateHappinessLevel = (index) => {
@@ -465,29 +460,34 @@ const toggleParamView = () => {
 }
 
 // ==================== 视频流事件 ====================
-const onVideoLoad = () => {
+const onVideoLoad = event => {
+  if (event.currentTarget !== videoImg.value || videoStatus.value === 'online') return
+  clearTimeout(reconnectTimer)
   videoStatus.value = 'online'
   statusText.value = '在线 · 等待人脸稳定...'
   reconnectAttempts.value = 0
   showConnectionTip.value = false
-  shouldPolling.value = true
   startPolling()
 }
 
-const onVideoError = () => {
+const onVideoError = event => {
+  if (event.currentTarget !== videoImg.value || !viewActive.value) return
+  clearTimeout(reconnectTimer)
   videoStatus.value = 'error'
   reconnectAttempts.value++
-
-  if (reconnectAttempts.value >= MAX_RECONNECT_ATTEMPTS) {
-    showConnectionTip.value = true
-    shouldPolling.value = false
-    stopPolling()
-    clearResults()
-    statusText.value = '摄像头不可用'
-    connectionTipText.value = cameraSource.value === 'xiaozhi' ? '小智摄像头未返回画面，请在设备管理中启动采集并检查设备连接' : cameraSource.value === 'rtsp'
-      ? '❌ 海康RTSP摄像头连接失败 (500)\n请检查设备电源、IP或RTSP地址'
-      : '❌ 本地摄像头无法打开 (500)\n请确认设备未被其他程序占用'
+  if (reconnectAttempts.value < MAX_RECONNECT_ATTEMPTS) {
+    reconnectTimer = setTimeout(() => { streamRevision.value++ }, 1000)
+    return
   }
+  showConnectionTip.value = true
+  stopPolling()
+  clearResults()
+  statusText.value = '摄像头不可用'
+  connectionTipText.value = cameraSource.value === 'xiaozhi'
+    ? '小智摄像头未返回画面，请在设备管理中启动采集并检查设备连接'
+    : cameraSource.value === 'rtsp'
+      ? '海康 RTSP 摄像头连接失败，请检查设备电源、IP 和 RTSP 地址'
+      : '本地摄像头无法打开，请检查设备连接与占用情况'
 }
 
 // ==================== 参数管理 ====================
@@ -515,14 +515,14 @@ const clearResults = () => {
 }
 
 // 优化：fetchResults函数（适配新版后端接口）
-const fetchResults = async () => {
-  if (!shouldPolling.value) return
-
+const fetchResults = async (query, signal) => {
   try {
-    const res = await fetch(`${baseURL}/video/results?${sourceQuery.value}`)
+    const res = await fetch(`${baseURL}/video/results?${query}`, {
+      headers: authHeaders(), signal, cache: 'no-store'
+    })
+    if (!res.ok) return
     const data = await res.json()
-
-    console.log("后端返回数据：", data)
+    if (signal.aborted || query !== sourceQuery.value) return
 
     // 更新分析状态
     isAnalyzing.value = data.analyzing || false
@@ -535,8 +535,10 @@ const fetchResults = async () => {
     emailUpdatedAt.value=data.email_updated_at||null
     
     // Reflect the backend phase, rather than showing identity lookup as face instability.
-    statusText.value=analysisMessage.value
-    if(data.analyzing||data.has_results)videoStatus.value='online'
+    if (videoStatus.value !== 'error') {
+      statusText.value = analysisMessage.value
+      if (data.analyzing || data.has_results) videoStatus.value = 'online'
+    }
 
     // 更新参数
     if (data.results) {
@@ -555,7 +557,9 @@ const fetchResults = async () => {
       id: data.identified ? data.person_id || '' : '',
       name: data.identified ? data.matched_person || '' : '未匹配人员',
       similarity: data.similarity || 0,
-      recognizeTime: personInfo.value.recognizeTime || new Date().toLocaleString()
+      recognizeTime: data.identified
+        ? (personInfo.value.id === data.person_id ? personInfo.value.recognizeTime : '') || new Date().toLocaleString()
+        : ''
     }
 
     // 幸福指数计算（与后端同步）
@@ -565,73 +569,60 @@ const fetchResults = async () => {
     wellbeingResults.value.safety_risk_level = calculateSafetyRiskLevel(happinessIndex)
 
   } catch (err) {
-    console.error('轮询失败', err)
+    if (!signal.aborted) console.warn('无法读取实时监测结果')
   }
 }
 
 // ==================== 轮询管理 ====================
-const startPolling = () => {
-  if (pollTimer) clearInterval(pollTimer)
-  // 分析完成后降低轮询频率（每5秒一次）
-  const interval = analysisCompleted.value ? 5000 : 800
-  pollTimer = setInterval(fetchResults, interval)
-  fetchResults() // 立即执行一次
+const stopPolling = () => {
+  clearTimeout(pollTimer)
+  pendingResults?.abort()
+  pendingResults = undefined
 }
 
-const stopPolling = () => {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
+const startPolling = () => {
+  stopPolling()
+  if (!sourceQuery.value || document.hidden || !viewActive.value || showConnectionTip.value) return
+  const controller = new AbortController()
+  const query = sourceQuery.value
+  pendingResults = controller
+  async function poll() {
+    await fetchResults(query, controller.signal)
+    if (!controller.signal.aborted) {
+      pollTimer = setTimeout(poll, analysisCompleted.value ? 5000 : 800)
+    }
   }
+  poll()
 }
 
 const handleVisibilityChange = () => {
-  if (document.hidden) {
-    stopPolling()
-  } else if (shouldPolling.value && videoStatus.value === 'online') {
-    startPolling()
-  }
+  if (document.hidden) stopPolling()
+  else startPolling()
 }
 
-// ==================== 用户操作 ====================
-const resetParams = async () => {
-  resetLoading.value = true
-  try {
-    const res = await fetch(`${baseURL}/video/reset?${sourceQuery.value}`)
-    if (res.ok) {
-      const data = await res.json()
-      clearResults()
-      videoStatus.value = 'waiting'
-      statusText.value = '已刷新，等待人脸检测...'
-      ElMessage.success(data.message || '已刷新！摄像头将重新检测人脸')
-      startPolling()
-    } else {
-      ElMessage.error('刷新失败')
-    }
-  } catch (err) {
-    ElMessage.error('请求失败')
-  } finally {
-    resetLoading.value = false
-  }
-}
-
-// ==================== 摄像头切换 ====================
-let cameraWatchReady = false
-watch(() => cameraStore.cameraId, (newId, oldId) => {
-  if (!cameraWatchReady || !oldId || oldId === newId) return
-
-  if (videoImg.value) videoImg.value.removeAttribute('src')
-  stopPolling()
-  shouldPolling.value = false
+const resetVisibleState = () => {
+  clearTimeout(reconnectTimer)
   clearResults()
-  isAnalyzing.value = false
-  analysisCompleted.value = false
-  videoStatus.value = 'connecting'
-  statusText.value = '正在连接所选摄像头…'
-  showConnectionTip.value = false
   reconnectAttempts.value = 0
+  showConnectionTip.value = false
+  videoStatus.value = sourceQuery.value ? 'connecting' : 'waiting'
+  statusText.value = sourceQuery.value ? '正在连接所选摄像头…' : '等待选择小智设备'
+}
 
-  shouldPolling.value = true
+const resetParams = () => {
+  if (cameraSource.value === 'xiaozhi') cameraStore.loadXiaozhiDevices(true, true).catch(() => {})
+  resetVisibleState()
+  if (cameraSource.value === 'xiaozhi' && parallelPreview.value) {
+    const id = xiaozhiDevice.value
+    if (id) parallelRevisions.value.set(id, (parallelRevisions.value.get(id) || 0) + 1)
+  } else if (sourceQuery.value) {
+    streamRevision.value++
+  }
+  startPolling()
+}
+
+watch([sourceQuery, parallelPreview], () => {
+  resetVisibleState()
   startPolling()
 })
 
@@ -643,40 +634,29 @@ const getLevelClass = (value) => {
 }
 
 // ==================== 生命周期 ====================
-onMounted(async () => {
-  try {
-    await cameraStore.loadXiaozhiDevices()
-  } catch {
-    // The camera control displays the device-list failure.
-  }
-  cameraWatchReady = true
+onMounted(() => {
+  resetVisibleState()
   startPolling()
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onActivated(() => {
-  streamKey.value += 1
-  videoStatus.value = 'connecting'
-  statusText.value = '正在恢复摄像头连接…'
-  shouldPolling.value = true
+  if (viewActive.value) return
+  viewActive.value = true
+  resetVisibleState()
   startPolling()
 })
 
 onDeactivated(() => {
+  viewActive.value = false
+  clearTimeout(reconnectTimer)
   stopPolling()
-  shouldPolling.value = false
-  if (videoImg.value) videoImg.value.src = ''
-  streamKey.value += 1
 })
 
 onBeforeUnmount(() => {
+  viewActive.value = false
+  clearTimeout(reconnectTimer)
   stopPolling()
-  shouldPolling.value = false
-  if (videoImg.value) videoImg.value.src = ''
-})
-
-onUnmounted(() => {
-  if (videoImg.value) videoImg.value.src = ''
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>

@@ -1,7 +1,7 @@
 /* One assistant shared by every authenticated workspace, with isolated device conversations. */
 (()=>{
  'use strict';
- if(!localStorage.getItem('token'))return;
+ if(!xiaozhiAuth.get())return;
  const face='<svg class="assistant-face" viewBox="0 0 36 36" aria-hidden="true"><rect x="5" y="8" width="26" height="21" rx="9"/><path d="M18 8V5m-3-1h6M11 16v3m14-3v3m-12 4q5 4 10 0"/></svg>';
  const host=document.createElement('div');host.className='xiaozhi-assistant';
  host.innerHTML=`<section class="assistant-panel" id="xiaozhiAssistantPanel" role="dialog" aria-modal="false" aria-labelledby="xiaozhiAssistantTitle" hidden>
@@ -36,8 +36,8 @@
  function stop(){if(!active)return;const run=active;active=null;sequence++;run.controller.abort();clearTimeout(run.timeout);const list=conversations.get(run.deviceId);if(list?.at(-1)===run.turn)list.pop();if(context.deviceId===run.deviceId)input.value=run.turn.content;render()}
  async function checkContext(){
   if(checking)return checking;
-  checking=(async()=>{try{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);let response;try{response=await fetch('/api/console/status',{headers:{Authorization:'Bearer '+localStorage.getItem('token')},signal:controller.signal})}finally{clearTimeout(timer)}
-   if(response.status===401){location.replace('/static/login.html');return}if(!response.ok)throw Error('暂时无法连接助手，请稍后再试。');const result=await response.json();
+  checking=(async()=>{try{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);let response;try{response=await fetch('/api/console/status',{headers:{Authorization:'Bearer '+xiaozhiAuth.get()},signal:controller.signal})}finally{clearTimeout(timer)}
+   if(response.status===401){xiaozhiAuth.expire();return}if(!response.ok)throw Error('暂时无法连接助手，请稍后再试。');const result=await response.json();
    const isReview=location.pathname.endsWith('/session.html'),deviceId=isReview?window.xiaozhiReviewDevice:(context.deviceId||localStorage.getItem('selectedDevice'));
    const device=result.devices?.find(d=>d.device_id===deviceId)||(!isReview?result.devices?.[0]:null);
    update({deviceId:device?.device_id||'',deviceName:device?.name||'',configured:!!result.assistant_configured});
@@ -53,8 +53,8 @@
   e.preventDefault();if(active){stop();return}const message=input.value.trim();if(!message||!context.deviceId||context.configured!==true)return;
   const deviceId=context.deviceId,history=turns().slice(-12).map(t=>({role:t.role,content:t.content.slice(0,6000)})),turn={role:'user',content:message},controller=new AbortController(),seq=++sequence;
   const run={deviceId,turn,controller,timeout:setTimeout(()=>controller.abort(),90000)};active=run;turns().push(turn);input.value='';setError('');render();
-  try{const response=await fetch('/api/agent/chat',{method:'POST',headers:{Authorization:'Bearer '+localStorage.getItem('token'),'Content-Type':'application/json'},body:JSON.stringify({message,device_id:deviceId,history}),signal:controller.signal});
-   if(response.status===401){location.replace('/static/login.html');return}if(!response.ok)throw Error(response.status===429?'提问过于频繁，请稍后再试。':'暂时无法获取回复，请稍后重试。');const result=await response.json();if(typeof result.reply!=='string'||!result.reply.trim())throw Error('没有收到回复，请再试一次。');
+  try{const response=await fetch('/api/agent/chat',{method:'POST',headers:{Authorization:'Bearer '+xiaozhiAuth.get(),'Content-Type':'application/json'},body:JSON.stringify({message,device_id:deviceId,history}),signal:controller.signal});
+   if(response.status===401){xiaozhiAuth.expire();return}if(!response.ok)throw Error(response.status===429?'提问过于频繁，请稍后再试。':'暂时无法获取回复，请稍后重试。');const result=await response.json();if(typeof result.reply!=='string'||!result.reply.trim())throw Error('没有收到回复，请再试一次。');
    if(seq!==sequence||context.deviceId!==deviceId)return;if(result.reply.startsWith('抱歉，我暂时无法回复'))throw Error(result.reply);conversations.get(deviceId).push({role:'assistant',content:result.reply});
    // Keep a bounded, session-only conversation. Reloading or logging out clears it.
    if(conversations.get(deviceId).length>40)conversations.set(deviceId,conversations.get(deviceId).slice(-40));

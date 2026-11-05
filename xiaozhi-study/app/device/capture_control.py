@@ -11,10 +11,32 @@ def _load():
  except (OSError,ValueError):return {}
 def _save(items):
  REGISTRY.parent.mkdir(exist_ok=True);temp=REGISTRY.with_suffix('.tmp');temp.write_text(json.dumps(items,ensure_ascii=False),encoding='utf-8');temp.replace(REGISTRY)
+def _collector_script_paths():
+ # Only these exact local source files can own a collector; basename matching
+ # would risk adopting or stopping an unrelated process.
+ scripts={SCRIPT.resolve()}
+ legacy=os.getenv('XIAOZHI_LEGACY_PROJECT_DIR','').strip()
+ if legacy:
+  root=Path(legacy).expanduser()
+  if not root.is_absolute():root=ROOT/root
+  scripts.add((root/'watcher_usb.py').resolve())
+ return scripts
+
+def _collector_process(process):
+ args=process.cmdline()[1:];index=0
+ while index<len(args) and args[index].startswith('-'):
+  option=args[index]
+  if option in ('-c','-m'):return False
+  index+=2 if option in ('-W','-X','--check-hash-based-pycs') else 1
+ if index>=len(args):return False
+ script=Path(args[index])
+ if not script.is_absolute():script=Path(process.cwd())/script
+ return script.resolve() in _collector_script_paths()
+
 def _process(pid):
  try:
   p=psutil.Process(int(pid))
-  if not any(Path(a).resolve()==SCRIPT for a in p.cmdline()[1:] if not a.startswith('-')):return None
+  if not _collector_process(p):return None
   return p if p.is_running() else None
  except (ValueError,OSError,psutil.Error,TypeError):return None
 def _items():
@@ -32,7 +54,7 @@ def _rows():
   identity=state.get('identity') or {};valid_pids=set()
   if p:
    valid_pids.add(p.pid)
-   try:valid_pids.update(child.pid for child in p.children(recursive=True) if any(Path(a).resolve()==SCRIPT for a in child.cmdline()[1:] if not a.startswith('-')))
+   try:valid_pids.update(child.pid for child in p.children(recursive=True) if _collector_process(child))
    except (psutil.Error,OSError):pass
   valid=bool(p and state.get('pid') in valid_pids and state.get('updated_at',0)>=p.create_time() and state.get('connected') and time.time()-state.get('updated_at',0)<20 and identity.get('usb_serial')==serial and any(q.device==state.get('port') and q.serial_number==serial for q in ports))
   if valid:item.update(device_id=identity.get('device_id'),port=state.get('port'))

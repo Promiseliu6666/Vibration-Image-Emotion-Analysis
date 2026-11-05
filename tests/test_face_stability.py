@@ -14,4 +14,5 @@ class Tests(unittest.TestCase):
  def test_tiny_or_missing_face_cannot_start(self):
   gate=m.FaceStabilityGate()
   for t in range(10):self.assertFalse(gate.observe((100,80,10,10),t)['ready'])
-unittest.main()
+if __name__ == '__main__':
+    unittest.main()

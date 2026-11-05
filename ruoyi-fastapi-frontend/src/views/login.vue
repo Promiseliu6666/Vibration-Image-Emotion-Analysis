@@ -164,11 +164,13 @@ const handleLogin = () => {
       .then(() => {
         const query = { ...route.query }
         delete query.redirect
-        router.push({ path: redirect.value || '/', query })
+        return router.push({ path: redirect.value || '/', query })
       })
       .catch(() => {
-        loading.value = false
         if (captchaEnabled.value) getCode()
+      })
+      .finally(() => {
+        loading.value = false
       })
   })
 }
