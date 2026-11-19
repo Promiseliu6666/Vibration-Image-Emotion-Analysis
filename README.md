@@ -80,7 +80,9 @@ uv sync
 pip3 install -r requirements-pg.txt
 
 # 配置环境
-在.env.dev文件中配置开发环境的数据库和redis
+# 首次运行：复制不含密钥的模板，再填写本机数据库、Redis 等配置
+cp .env.dev.example .env.dev
+# .env.dev 是私有文件，不要提交到 Git
 
 # 运行sql文件
 1.新建数据库ruoyi-fastapi(默认，可修改)
@@ -117,8 +119,14 @@ npm run build:prod 或 yarn build:prod
 
 ```bash
 # 配置环境
-在.env.prod文件中配置生产环境的数据库和redis
+cp .env.prod.example .env.prod
+# 在私有 .env.prod 中填写生产配置，不要提交到 Git
 
 # 运行后端
 uv run app.py --env=prod
 ```
+
+SMTP 邮件默认关闭。撤销旧授权码后，将新授权码写入服务器环境变量或私有
+`.env.dev` / `.env.prod` 的 `MAIL_PASSWORD`，再设置 `MAIL_ENABLED=true` 并重启后端。
+不要把邮箱密码或授权码写入源码、模板、日志、截图或聊天。
+泄露处置及历史清理步骤见 [SMTP 安全说明](docs/smtp-security.md)。

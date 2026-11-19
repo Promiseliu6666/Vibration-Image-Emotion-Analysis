@@ -160,6 +160,10 @@ nohup.out
 .env
 .env.dev
 .env.prod
+# Private environment variants; only sanitized templates belong in Git.
+.env.*
+!.env.example
+!.env.*.example
 *.bak
 *.db
 *.sqlite
