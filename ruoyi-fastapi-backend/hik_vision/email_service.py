@@ -1,26 +1,26 @@
 # hik_vision/email_service.py
 import os
-import traceback
 from datetime import datetime
 from typing import Optional
 
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 
 # ====================== 邮箱配置 ======================
-conf = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
-    MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=int(os.getenv("MAIL_PORT", 465)),
-    MAIL_SERVER=os.getenv("MAIL_SERVER"),
-    MAIL_FROM_NAME=os.getenv("MAIL_FROM_NAME", "振动分析系统"),
-    MAIL_STARTTLS=os.getenv("MAIL_STARTTLS", "False").lower() == "true",
-    MAIL_SSL_TLS=os.getenv("MAIL_SSL_TLS", "True").lower() == "true",
-    USE_CREDENTIALS=os.getenv("MAIL_USE_CREDENTIALS", "True").lower() == "true",
-    VALIDATE_CERTS=os.getenv("MAIL_VALIDATE_CERTS", "True").lower() == "true",
-)
-
-fm = FastMail(conf)
+# Create the SMTP client only after email is explicitly enabled.
+def _create_mail_client() -> FastMail:
+    conf = ConnectionConfig(
+        MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
+        MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
+        MAIL_FROM=os.getenv("MAIL_FROM"),
+        MAIL_PORT=int(os.getenv("MAIL_PORT", 465)),
+        MAIL_SERVER=os.getenv("MAIL_SERVER"),
+        MAIL_FROM_NAME=os.getenv("MAIL_FROM_NAME", "振动分析系统"),
+        MAIL_STARTTLS=os.getenv("MAIL_STARTTLS", "False").lower() == "true",
+        MAIL_SSL_TLS=os.getenv("MAIL_SSL_TLS", "True").lower() == "true",
+        USE_CREDENTIALS=os.getenv("MAIL_USE_CREDENTIALS", "True").lower() == "true",
+        VALIDATE_CERTS=os.getenv("MAIL_VALIDATE_CERTS", "True").lower() == "true",
+    )
+    return FastMail(conf)
 
 
 async def send_analysis_email(
@@ -31,6 +31,8 @@ async def send_analysis_email(
         recipient: Optional[str] = None
 ) -> bool:
     """仅在幸福指数 < 60 且识别到具体人员时发送邮件"""
+    if os.getenv("MAIL_ENABLED", "false").lower() != "true":
+        return False
     try:
         recipient_email = recipient or os.getenv("RECIPIENT_EMAIL")
         if not recipient_email:
@@ -97,11 +99,10 @@ async def send_analysis_email(
             subtype=MessageType.plain,
         )
 
-        await fm.send_message(message)
+        await _create_mail_client().send_message(message)
         print(f"[{source}] ✅ 低幸福指数预警邮件已发送 → {recipient_email} | 幸福指数: {happiness_index:.1f}")
         return True
 
     except Exception as e:
-        print(f"[{source}] ❌ 邮件发送失败: {e}")
-        traceback.print_exc()
+        print(f"[{source}] [ERROR] 邮件发送失败 ({type(e).__name__})，请检查本机邮件配置")
         return False
