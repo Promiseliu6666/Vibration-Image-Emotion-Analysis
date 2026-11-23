@@ -6,7 +6,10 @@
           <span class="detection-hub__eyebrow">智能状态感知</span>
           <h2 id="detection-hub-title">选择检测方式</h2>
         </div>
-        <p>共用现有摄像头接入，从心理状态与疲劳行为两个角度辅助观察。</p>
+        <div>
+          <p>共用现有摄像头接入，从心理状态与疲劳行为两个角度辅助观察。</p>
+          <router-link to="/camera/live">按摄像头配置进入视频监测 →</router-link>
+        </div>
       </div>
 
       <div class="detection-grid">

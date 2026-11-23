@@ -49,10 +49,13 @@ from sub_applications.handle import handle_sub_applications
 from module_xuzhou.controller.agent_controller import agent_controller
 from utils.log_util import logger
 from hik_vision.hik_vision import videoController
+from hik_vision.camera_bridge_config import get_camera_bridge_key
+from hik_vision.fatigue_service import FatigueServiceSupervisor
 
 # 生命周期事件
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_camera_bridge_key()
     logger.info(f'{AppConfig.app_name}开始启动')
     await init_create_table()
     app.state.redis = await RedisUtil.create_redis_pool()
@@ -70,8 +73,13 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(start_inference_monitor())
         logger.info(f'{AppConfig.app_name}推理监控器已启动')
     
+    app.state.fatigue_service = FatigueServiceSupervisor()
+    app.state.fatigue_service.start()
     logger.info(f'{AppConfig.app_name}启动成功')
-    yield
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(app.state.fatigue_service.stop)
     await RedisUtil.close_redis_pool(app)
     await RabbitMQUtil.close_rabbitmq_pool(app)
     await SchedulerUtil.close_system_scheduler()

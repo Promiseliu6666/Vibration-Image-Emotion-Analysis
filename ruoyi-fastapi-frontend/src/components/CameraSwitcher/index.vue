@@ -3,7 +3,7 @@
     class="camera-switcher"
     :class="{
       'camera-switcher--compact': compact,
-      'camera-switcher--error': cameraStore.deviceError,
+      'camera-switcher--error': cameraStore.source === 'xiaozhi' && cameraStore.deviceError,
       'camera-switcher--online': cameraStore.selectedOnline === true
     }"
     :title="statusTitle"
@@ -77,7 +77,7 @@ const showLoading = computed(() => (
 ))
 
 const statusTitle = computed(() => {
-  if (cameraStore.deviceError) return cameraStore.deviceError
+  if (cameraStore.source === 'xiaozhi' && cameraStore.deviceError) return cameraStore.deviceError
   if (cameraStore.selectedOnline === true) {
     return `${cameraStore.cameraLabel} · 在线`
   }
@@ -112,7 +112,7 @@ async function refresh(background = false) {
 onMounted(() => {
   refresh()
   refreshTimer = window.setInterval(() => {
-    if (!document.hidden && !cameraStore.deviceError) refresh(true)
+    if (!document.hidden) refresh(true)
   }, 30000)
 })
 

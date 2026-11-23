@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { listCameras } from '@/api/camera'
+import { listCameras, listAnalysisAlgorithms, saveCameraAnalysis } from '@/api/camera'
 import {
   CAMERA_STORAGE_KEY,
   parseCameraId,
@@ -26,6 +26,7 @@ const useCameraStore = defineStore('camera', {
   state: () => ({
     cameraId: readInitialCameraId(),
     cameraCatalog: [],
+    algorithms: [],
     xiaozhiDevices: [],
     devicesLoaded: false,
     loadingDevices: false,
@@ -33,6 +34,15 @@ const useCameraStore = defineStore('camera', {
     lastDeviceSync: 0
   }),
   getters: {
+    selectedCamera: state => state.cameraCatalog.find(camera => camera.camera_id === state.cameraId),
+    selectedAnalysis() {
+      const config = this.selectedCamera?.analysis || {}
+      return {
+        scene: '心理状态观察', show_overlay: false, ...config,
+        algorithm_ids: config.algorithm_ids || [config.algorithm_id || 'vibration'],
+        algorithm_id: config.algorithm_ids?.[0] || config.algorithm_id || 'vibration'
+      }
+    },
     selection: state => parseCameraId(state.cameraId),
     source() {
       return this.selection.source
@@ -99,6 +109,17 @@ const useCameraStore = defineStore('camera', {
     }
   },
   actions: {
+    async loadAlgorithms() {
+      const response = await listAnalysisAlgorithms()
+      this.algorithms = response.algorithms || []
+      return this.algorithms
+    },
+    async configureCamera(cameraId, analysis) {
+      const response = await saveCameraAnalysis(cameraId, analysis)
+      const camera = this.cameraCatalog.find(item => item.camera_id === cameraId)
+      if (camera) camera.analysis = response.analysis
+      return response.analysis
+    },
     selectCamera(cameraId, persist = true) {
       const { source, deviceId } = parseCameraId(cameraId)
       const normalizedId = toCameraId(source, deviceId)

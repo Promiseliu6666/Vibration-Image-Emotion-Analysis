@@ -122,6 +122,24 @@ pipeline.close()
 在仓库根目录运行 `python start_local.py` 时，平台会自动启动这个服务。也可以
 在主后台和摄像头服务已经运行后手动启动：
 
+Windows 本机已配置独立环境时，可在仓库根目录运行 `start-fatigue.cmd`。
+该入口使用 `.runtime/fatigue-venv`，并在首次启动时初始化与主后端共用的摄像头
+桥接密钥。现在直接启动主后端 `app.py --env=dev` 也会自动启动疲劳服务，
+无需单独输入第三条命令；已运行的服务会被复用。`start-fatigue.cmd` 保留用于
+单独调试。自动启动日志位于仓库根目录 `.runtime/fatigue-service.log`。
+可通过 `FATIGUE_SERVICE_AUTOSTART=false` 关闭自动启动。
+
+服务启动成功后访问 `http://127.0.0.1:9101/health`，应返回 `ok: true`。
+独立环境初次安装会下载 PyTorch 等较大依赖；CPU 环境可安装
+`torch==2.6.0+cpu` 和 `torchvision==0.21.0+cpu`，来源为 PyTorch CPU 包索引。
+完整版本约束见 `requirements-cpu-windows.txt`。从仓库根目录安装：
+
+```powershell
+uv venv --python 3.12 .runtime/fatigue-venv
+$env:UV_HTTP_TIMEOUT = '300'
+uv pip install --python .runtime/fatigue-venv/Scripts/python.exe -r fatigue_model_bundle/requirements-cpu-windows.txt --index-strategy unsafe-best-match
+```
+
 ```bash
 python platform_service.py --host 127.0.0.1 --port 9101
 ```

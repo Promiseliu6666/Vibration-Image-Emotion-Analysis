@@ -1,13 +1,13 @@
 <template>
-  <div class="fatigue-page">
-    <section class="page-intro">
+  <div ref="fatigueRoot" class="fatigue-page" :class="{ 'fatigue-page--embedded': embedded }" :style="embedded ? {} : { '--monitor-height':viewportHeight }">
+    <section v-if="!embedded" class="page-intro">
       <div class="page-intro__copy">
         <span class="page-intro__eyebrow">BEHAVIOUR SIGNAL</span>
         <h1>疲劳检测</h1>
-        <p>根据眼口状态与姿态变化评估当前疲劳度，数据约每秒更新一次。</p>
+        <p>实时展示人员疲劳程度与等级。</p>
       </div>
       <div class="page-intro__controls">
-        <CameraSwitcher />
+        <CameraSwitcher v-if="!embedded" />
         <el-button :loading="resetting" :disabled="!sourceQuery" @click="restartSession">
           <el-icon><Refresh /></el-icon>
           重新检测
@@ -15,19 +15,19 @@
       </div>
     </section>
 
-    <div class="connection-line">
-      <span class="connection-dot" :class="{ 'is-live': videoState === 'online' }"></span>
+    <div v-if="!embedded" class="connection-line">
+      <span class="connection-dot" :class="{ 'is-live': embedded ? result.status === 'running' && !serviceError : videoState === 'online' }"></span>
       <span>{{ statusMessage }}</span>
       <span v-if="serviceError" class="connection-line__error">{{ serviceError }}</span>
       <router-link to="/index" class="connection-line__back">返回首页</router-link>
     </div>
 
     <div class="primary-grid">
-      <div class="video-column">
-        <main class="video-shell" aria-label="疲劳检测实时画面">
+      <div v-if="!embedded" ref="videoColumn" class="video-column">
+        <main v-if="!embedded" class="video-shell" aria-label="疲劳检测实时画面">
           <div
             class="video-frame"
-            :style="{ aspectRatio: videoAspectRatio }"
+            :style="{ aspectRatio: videoAspectRatio, '--video-ratio': videoSize.width / videoSize.height, '--video-frame-limit':videoFrameLimit }"
           >
           <img
             v-if="videoStreamUrl"
@@ -116,6 +116,39 @@
           </div>
         </main>
 
+
+      </div>
+
+      <aside class="fatigue-panel-host" aria-label="疲劳检测结论">
+        <MonitorPanel v-if="!embedded" :algorithm-ids="['fatigue']">
+          <template #fatigue>
+            <FatigueStatusCard :result="result" :error="serviceError" :resetting="resetting" @restart="restartSession" />
+          </template>
+        </MonitorPanel>
+        <FatigueStatusCard v-else :result="result" :error="serviceError" :resetting="resetting" @restart="restartSession" />
+      </aside>
+    </div>
+
+    <details v-if="!embedded" class="detail-deck" aria-label="疲劳检测详细指标">
+      <summary class="detail-summary">
+        <span><strong>更多检测指标</strong><small>单帧状态、眼部、哈欠、姿态与运行信息</small></span>
+        <span class="detail-summary__action">展开 / 收起</span>
+      </summary>
+      <header class="detail-deck__heading">
+        <div>
+          <span class="panel-kicker">MEASUREMENT DETAIL</span>
+          <h2>检测数据</h2>
+        </div>
+        <div class="detail-deck__meta">
+          <strong v-if="lastStep" class="step-index">
+            STEP {{ lastStep.step_idx }} · {{ formatNumber(lastStep.timestamp_s, 1) }}s
+          </strong>
+          <span :class="lastStep?.valid ? 'validity-ok' : 'validity-wait'">
+            {{ lastStep ? (lastStep.valid ? '当前特征有效' : '当前特征无效') : '正在蓄积特征' }}
+          </span>
+        </div>
+      </header>
+
         <section class="frame-priority frame-priority--below">
           <div class="frame-priority__heading">
             <div>
@@ -161,134 +194,10 @@
             </div>
           </div>
         </section>
+      <div class="model-scores">
+        <MetricRow label="即时疲劳度" :value="fatigueScoreRaw" :digits="2" />
+        <MetricRow label="平滑疲劳度" :value="fatigueScore" :digits="2" />
       </div>
-
-      <aside class="focus-panel" aria-label="疲劳检测结论">
-        <header class="panel-heading">
-          <div>
-            <span class="panel-kicker">FATIGUE INDEX</span>
-            <h2 class="panel-title">
-              疲劳度
-              <el-tooltip
-                content="表示系统根据最近约 30 秒的眨眼、哈欠和姿态给出的疲劳程度估计。数值越高，表示疲劳倾向越明显；数值越低，表示当前越清醒。"
-                placement="top"
-              >
-                <QuestionFilled class="metric-help" tabindex="0" />
-              </el-tooltip>
-            </h2>
-          </div>
-          <span class="focus-tag" :class="`focus-tag--${scoreTone}`">{{ scoreStatus }}</span>
-        </header>
-
-        <div class="score-display" :class="`score-display--${scoreTone}`">
-          <strong>{{ scoreText }}</strong>
-          <span>0 — 1</span>
-        </div>
-
-        <div class="score-track" aria-hidden="true">
-          <span :style="{ width: `${scorePercent}%` }"></span>
-        </div>
-
-        <div class="score-meta">
-          <div>
-            <span class="score-label">
-              原始值
-              <el-tooltip
-                content="表示当前时刻的即时疲劳度估计。数值越高表示越疲劳，越低表示越清醒；其短期波动较明显。"
-                placement="top"
-              >
-                <QuestionFilled class="metric-help" tabindex="0" />
-              </el-tooltip>
-            </span>
-            <strong>{{ formatNumber(fatigueScoreRaw, 2) }}</strong>
-          </div>
-          <div>
-            <span class="score-label">
-              平滑值
-              <el-tooltip
-                content="由当前疲劳度与历史结果加权得到，用于降低分数的短期波动。数值越高表示疲劳倾向越明显，越低表示越清醒。"
-                placement="top"
-              >
-                <QuestionFilled class="metric-help" tabindex="0" />
-              </el-tooltip>
-            </span>
-            <strong>{{ formatNumber(fatigueScore, 2) }}</strong>
-          </div>
-        </div>
-
-        <section class="warmup-card">
-          <div class="warmup-card__top">
-            <span class="score-label">
-              特征窗口
-              <el-tooltip
-                content="表示系统已累计多少秒有效数据。达到 30 秒后开始评分；该数值仅反映准备进度。"
-                placement="top"
-              >
-                <QuestionFilled class="metric-help" tabindex="0" />
-              </el-tooltip>
-            </span>
-            <strong>{{ result.feature_buffer || 0 }} / {{ result.feature_target || 30 }}</strong>
-          </div>
-          <div class="warmup-track">
-            <span :style="{ width: `${featurePercent}%` }"></span>
-          </div>
-          <p v-if="fatigueScore == null">
-            {{ warmupHint }}
-          </p>
-          <p v-else>已进入实时评分阶段</p>
-        </section>
-
-        <section class="counter-grid">
-          <div>
-            <span class="score-label">
-              累计眨眼
-              <el-tooltip
-                content="表示本次检测累计完成的眨眼次数。应结合检测时长与个人平时情况解读，不宜单独作为疲劳判断依据。"
-                placement="top"
-              >
-                <QuestionFilled class="metric-help" tabindex="0" />
-              </el-tooltip>
-            </span>
-            <strong>{{ result.blink_total || 0 }}</strong>
-          </div>
-          <div>
-            <span class="score-label">
-              累计哈欠
-              <el-tooltip
-                content="表示本次检测累计完成的哈欠次数。数值较高通常提示困倦倾向，但仍需结合检测时长和个人情况判断。"
-                placement="top"
-              >
-                <QuestionFilled class="metric-help" tabindex="0" />
-              </el-tooltip>
-            </span>
-            <strong>{{ result.yawn_total || 0 }}</strong>
-          </div>
-        </section>
-
-        <div class="score-legend">
-          <span><i class="legend-dot legend-dot--green"></i>低于 0.45 清醒</span>
-          <span><i class="legend-dot legend-dot--orange"></i>0.45—0.70 困倦</span>
-          <span><i class="legend-dot legend-dot--red"></i>高于 0.70 疲劳</span>
-        </div>
-      </aside>
-    </div>
-
-    <section class="detail-deck" aria-label="疲劳检测详细指标">
-      <header class="detail-deck__heading">
-        <div>
-          <span class="panel-kicker">MEASUREMENT DETAIL</span>
-          <h2>检测数据</h2>
-        </div>
-        <div class="detail-deck__meta">
-          <strong v-if="lastStep" class="step-index">
-            STEP {{ lastStep.step_idx }} · {{ formatNumber(lastStep.timestamp_s, 1) }}s
-          </strong>
-          <span :class="lastStep?.valid ? 'validity-ok' : 'validity-wait'">
-            {{ lastStep ? (lastStep.valid ? '当前特征有效' : '当前特征无效') : '正在蓄积特征' }}
-          </span>
-        </div>
-      </header>
-
       <div class="detail-grid">
         <article class="data-card data-card--frame">
           <header class="data-card__heading">
@@ -491,7 +400,7 @@
           </div>
         </article>
       </div>
-    </section>
+    </details>
   </div>
 </template>
 
@@ -500,11 +409,23 @@ import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Aim, QuestionFilled, Refresh, VideoCamera } from '@element-plus/icons-vue'
 import { ElMessage, ElTooltip } from 'element-plus'
 import CameraSwitcher from '@/components/CameraSwitcher/index.vue'
+import MonitorPanel from '@/components/MonitorPanel/index.vue'
+import FatigueStatusCard from '@/components/FatigueStatusCard/index.vue'
 import useCameraStore from '@/store/modules/camera'
 import { cameraQueryString } from '@/utils/camera'
 import { getToken } from '@/utils/auth'
+import {useMonitorViewport} from '@/composables/useMonitorViewport'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
+const props = defineProps({
+  showOverlay: { type: Boolean, default: false },
+  embedded: { type: Boolean, default: false }
+})
+const fatigueRoot=ref(null)
+const viewportHeight=useMonitorViewport(fatigueRoot,!props.embedded)
+const videoColumn=ref(null)
+const videoFrameLimit=ref('min(56vh, 560px)')
+let videoResizeObserver
 const cameraStore = useCameraStore()
 const videoImg = ref(null)
 
@@ -516,7 +437,7 @@ const videoAspectRatio = computed(() => `${videoSize.value.width} / ${videoSize.
 const videoError = ref('')
 const serviceError = ref('')
 const resetting = ref(false)
-const showBoxes = ref(false)
+const showBoxes = ref(props.showOverlay)
 
 const emptyResult = () => ({
   ok: true,
@@ -609,7 +530,7 @@ const warmupHint = computed(() => {
   if (progress < target) {
     return `正在建立最近 60 秒行为基线（${progress}/${target} 帧）`
   }
-  return '正在收集 30 个有效一秒特征，通常还需要约 30 秒'
+  return `正在收集有效特征（${result.value.feature_buffer || 0}/30）；处理较慢或面部信号不足时，等待时间会延长。`
 })
 
 const statusMessage = computed(() => {
@@ -856,6 +777,7 @@ function handleVisibilityChange() {
 }
 
 watch(sourceQuery, () => {
+  showBoxes.value = props.showOverlay
   resetController?.abort()
   resetController = null
   resetting.value = false
@@ -867,11 +789,20 @@ watch(sourceQuery, () => {
 })
 
 onMounted(() => {
+  if(!props.embedded && videoColumn.value && typeof ResizeObserver !== 'undefined') {
+    videoResizeObserver=new ResizeObserver(()=>{
+      const note=videoColumn.value?.querySelector('.video-note')
+      const available=videoColumn.value?.clientHeight - (note?.offsetHeight || 0) - 2
+      videoFrameLimit.value=`${Math.max(80,available)}px`
+    })
+    videoResizeObserver.observe(videoColumn.value)
+  }
   startPolling()
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
+  videoResizeObserver?.disconnect()
   stopPolling()
   resetController?.abort()
   resetController = null
@@ -882,7 +813,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .fatigue-page {
   min-height: 100%;
-  padding: 24px;
+  padding: 20px;
+  max-width: 1600px;
+  margin: 0 auto;
   color: #172033;
   background:
     radial-gradient(circle at 5% 0%, rgba(56, 111, 164, 0.11), transparent 28%),
@@ -947,19 +880,22 @@ onBeforeUnmount(() => {
   text-decoration: none;
 }
 .primary-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(310px, 360px);
-  gap: 16px;
+  display: flex;
+  gap: 30px;
   align-items: start;
 }
 .video-column {
   display: flex;
+  flex: 1.2;
   min-width: 0;
   flex-direction: column;
   gap: 12px;
 }
 .focus-panel {
   display: flex;
+  flex: 0.8;
+  min-width: 400px;
+  max-width: 500px;
   min-height: 0;
   flex-direction: column;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1131,6 +1067,7 @@ onBeforeUnmount(() => {
 }
 .video-shell {
   display: flex;
+  align-items: center;
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
@@ -1142,6 +1079,7 @@ onBeforeUnmount(() => {
 .video-frame {
   position: relative;
   width: 100%;
+  max-width: calc(var(--video-frame-limit,min(56vh, 560px)) * var(--video-ratio, 1.333333));
   min-height: 0;
   overflow: hidden;
   background:
@@ -1154,7 +1092,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   min-height: 0;
-  object-fit: cover;
+  object-fit: contain;
 }
 .detection-overlay {
   position: absolute;
@@ -1330,7 +1268,7 @@ onBeforeUnmount(() => {
 }
 .detail-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   align-items: stretch;
 }
@@ -1630,6 +1568,62 @@ onBeforeUnmount(() => {
 .legend-dot--green {
   background: #83e7b5;
 }
+.video-note { width: 100%; box-sizing: border-box; }
+.page-intro__eyebrow, .panel-kicker { display: none; }
+.page-intro h1 { font-size: 26px; }
+.page-intro p { max-width: 680px; line-height: 1.7; }
+.focus-panel {
+  color: #253b53;
+  background: #fff;
+  border: 1px solid #e1e8ef;
+  box-shadow: 0 8px 24px rgba(32,48,70,.06);
+}
+.focus-panel .panel-heading h2, .focus-panel .score-display strong,
+.focus-panel .counter-grid strong, .focus-panel .warmup-card__top strong { color: #253b53; }
+.focus-panel .score-display--alert strong { color: #21805d; }
+.focus-panel .score-display--drowsy strong { color: #ae701a; }
+.focus-panel .score-display--fatigued strong { color: #c4514b; }
+.focus-panel .score-display span, .focus-panel .warmup-card p, .focus-panel .score-legend { color: #718197; }
+.focus-panel .warmup-card { border-color: #e5ebf1; }
+.focus-panel .score-track, .focus-panel .warmup-track { background: #edf1f5; }
+.focus-panel .counter-grid > div { background: #f5f8fb; border-radius: 10px; }
+.focus-panel .focus-tag--wait { color: #60758b; background: #edf2f7; }
+.focus-panel .focus-tag--alert { color: #21805d; background: #e7f5ee; }
+.focus-panel .focus-tag--drowsy { color: #ae701a; background: #fff3df; }
+.focus-panel .focus-tag--fatigued { color: #c4514b; background: #feeeee; }
+.focus-panel .score-legend { flex-direction: row; flex-wrap: wrap; gap: 8px 16px; margin-top: 0; }
+.detail-summary { display: flex; justify-content: space-between; align-items: center; gap: 16px; cursor: pointer; list-style: none; }
+.detail-summary::-webkit-details-marker { display: none; }
+.detail-summary strong { display: block; font-size: 15px; color: #253b53; }
+.detail-summary small { display: block; margin-top: 5px; font-size: 12px; color: #718197; }
+.detail-summary__action { flex-shrink: 0; font-size: 12px; color: #335c99; }
+.detail-deck[open] .detail-summary { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid #e1e8ef; }
+.detail-deck .frame-priority { margin-bottom: 16px; box-shadow: none; }
+.model-scores { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 16px; }
+.fatigue-page--embedded .focus-panel { flex: 1; max-width: none; }
+.fatigue-panel-host { flex: .8; min-width: 400px; max-width: 500px; }
+.fatigue-page--embedded { padding: 0; margin: 0; max-width: none; background: none; display:flex;flex-direction:column;width:100%; }
+.fatigue-page--embedded .primary-grid { display:flex;flex:1; }
+.fatigue-page--embedded .fatigue-panel-host { min-width: 0; max-width: none; width: 100%; flex:1; }
+.fatigue-page--embedded .detail-deck { padding: 12px; border-radius: 12px; box-shadow: none; }
+.fatigue-page--embedded .detail-summary { gap: 8px; }
+.fatigue-page--embedded .detail-summary strong { font-size: 13px; }
+.fatigue-page--embedded .detail-summary small { font-size: 10px; }
+.fatigue-page--embedded .detail-grid, .fatigue-page--embedded .model-scores { grid-template-columns: 1fr; }
+.fatigue-page--embedded .frame-priority__grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.fatigue-page:not(.fatigue-page--embedded) { height:var(--monitor-height,calc(100dvh - 84px));box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;padding:12px 16px; }
+.fatigue-page:not(.fatigue-page--embedded) .page-intro { flex-shrink:0;margin-bottom:6px;gap:12px; }
+.fatigue-page:not(.fatigue-page--embedded) .page-intro h1 { font-size:20px;margin:0 0 3px; }
+.fatigue-page:not(.fatigue-page--embedded) .page-intro p { font-size:12px; }
+.fatigue-page:not(.fatigue-page--embedded) .connection-line { min-height:24px;margin-bottom:8px;flex-shrink:0;font-size:12px; }
+.fatigue-page:not(.fatigue-page--embedded) .primary-grid { flex:1;min-height:0;gap:20px; }
+.fatigue-page:not(.fatigue-page--embedded) .video-column { height:100%;min-height:0;overflow:hidden; }
+.fatigue-page:not(.fatigue-page--embedded) .video-shell { flex:1;min-height:0;justify-content:center; }
+.fatigue-page:not(.fatigue-page--embedded) .video-frame { flex-shrink:0; }
+.fatigue-page:not(.fatigue-page--embedded) .fatigue-panel-host { min-height:0;min-width:360px;max-width:460px; }
+.fatigue-page:not(.fatigue-page--embedded) .detail-deck { flex-shrink:0;padding:10px 14px;margin-top:10px; }
+.fatigue-page:not(.fatigue-page--embedded) .detail-deck[open] { max-height:30vh;overflow:auto; }
+.detail-summary small { display:none; }
 @media (max-width: 1280px) {
   .primary-grid {
     grid-template-columns: minmax(0, 1fr) 310px;
@@ -1643,7 +1637,12 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 980px) {
   .primary-grid {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+  .video-column, .focus-panel, .fatigue-panel-host {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
   }
 }
 @media (max-width: 760px) {

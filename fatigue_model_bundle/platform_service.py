@@ -37,6 +37,7 @@ from fatigue_pipeline.constants import (
     UPPER_BODY_KPT_NAMES,
 )
 from fatigue_pipeline.feature_aggregator import FeatureAggregator
+from fatigue_pipeline.realtime_clock import RealtimeClock
 from fatigue_pipeline.inference_pipeline import FrameProbs
 from fatigue_pipeline.pose_estimator import PoseEstimator
 from fatigue_pipeline.region_cropper import RegionCropper
@@ -235,7 +236,11 @@ class FatigueRuntime:
             p_mouth_open=p_mouth,
             keypoints=kpts,
         )
-        step = session.aggregator.add(probs)
+        steps = []
+        for observation in session.clock.sample(probs, time.monotonic()):
+            step = session.aggregator.add(observation)
+            if step is not None:
+                steps.append(step)
 
         inference_dt = time.perf_counter() - started
         session.inference_dt_avg = (
@@ -244,7 +249,7 @@ class FatigueRuntime:
             else 0.9 * session.inference_dt_avg + 0.1 * inference_dt
         )
 
-        if step is not None:
+        for step in steps:
             session.last_step = step
             features = step.features
             if features.valid:
@@ -281,7 +286,7 @@ class FatigueRuntime:
             "inference_latency_ms": inference_dt * 1000.0,
             "temporal_fps": session.temporal_fps,
             "warmup_progress": min(
-                session.frames_seen,
+                session.clock.next_index,
                 session.aggregator.sub_window_frames,
             ),
             "warmup_target": session.aggregator.sub_window_frames,
@@ -344,6 +349,7 @@ class FatigueRuntime:
 class FatigueSessionState:
     def __init__(self, aggregator: FeatureAggregator, feature_buffer: deque) -> None:
         self.aggregator = aggregator
+        self.clock = RealtimeClock(aggregator.fps)
         self.feature_buffer = feature_buffer
         self.frames_seen = 0
         self.inference_dt_avg = 0.0

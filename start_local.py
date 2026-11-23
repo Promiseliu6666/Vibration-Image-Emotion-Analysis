@@ -83,12 +83,12 @@ launch('backend',[b/'.venv/Scripts/python.exe','app.py','--env=dev'],b,9099)
 launch('xiaozhi',[xpython,'-u','main.py'],x,8000)
 fatigue_python=Path(os.getenv('FATIGUE_SERVICE_PYTHON') or config_value(
  'FATIGUE_SERVICE_PYTHON',
- r'D:\Python\environments\fatigue-sense\python.exe'
+ str(root/'.runtime/fatigue-venv/Scripts/python.exe') if (root/'.runtime/fatigue-venv/Scripts/python.exe').is_file() else r'D:\Python\environments\fatigue-sense\python.exe'
 ))
 fatigue_port=int(config_value('FATIGUE_SERVICE_PORT','9101'))
 if not fatigue_python.exists():
  raise FileNotFoundError(f'Fatigue Python environment not found: {fatigue_python}')
-launch('fatigue',[fatigue_python,'platform_service.py','--host','127.0.0.1','--port',str(fatigue_port)],fatigue,fatigue_port)
+launch('fatigue',[fatigue_python,root/'start_fatigue.py','--host','127.0.0.1','--port',str(fatigue_port)],root,fatigue_port)
 for _ in range(60):
  if http_ready('http://127.0.0.1:9099/openapi.json') and http_ready('http://127.0.0.1:8000/'):break
  time.sleep(1)

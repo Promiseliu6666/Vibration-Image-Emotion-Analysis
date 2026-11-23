@@ -162,6 +162,31 @@ class VibraimageCore:
             f_min, f_max = self.F.min(), self.F.max()
             self.F_norm = (self.F - f_min) / (f_max - f_min + 1e-6) if f_max > f_min else np.zeros_like(self.F)
 
+    def _spectral_energy(self):
+        """Compare dominant frequency and spectral spread in Hz, per spectrum.
+
+        Counting repeated FFT bins measures session length, not signal energy.
+        Normalize each spectrum before averaging so repeats and changing FPS
+        do not bias the result simply by adding more frequency-bin entries.
+        """
+        scores = []
+        for frequencies, powers in zip(self.frequency_data, self.power_spectrum):
+            frequencies = np.asarray(frequencies, dtype=float)
+            powers = np.asarray(powers, dtype=float)
+            if frequencies.shape != powers.shape or frequencies.ndim != 1:
+                continue
+            valid = np.isfinite(frequencies) & np.isfinite(powers) & (frequencies >= 0) & (powers >= 0)
+            frequencies, powers = frequencies[valid], powers[valid]
+            total = powers.sum()
+            if not frequencies.size or total <= 0 or frequencies.max() <= 0:
+                continue
+            weights = powers / total
+            center = np.sum(weights * frequencies)
+            spread = np.sqrt(np.sum(weights * (frequencies - center) ** 2))
+            dominant = frequencies[np.argmax(powers)]
+            scores.append(np.clip((dominant - spread) / frequencies.max(), 0, 1) * 100)
+        return float(np.mean(scores)) if scores else 0.0
+
     def _calculate_all_parameters(self):
         """计算所有14个参数 e1-e14"""
         results = {}
@@ -247,15 +272,7 @@ class VibraimageCore:
         self.e6_history.append(results["e6"])
 
         # e7: Energy
-        e7 = 0
-        if self.frequency_data:
-            all_freqs = np.concatenate(self.frequency_data) if self.frequency_data else np.array([])
-            if len(all_freqs) > 0:
-                F_ps = np.max(all_freqs)
-                freq_counts = np.bincount(np.round(all_freqs).astype(int))
-                M = np.max(freq_counts) if len(freq_counts) > 0 else 0
-                sigma = np.std(all_freqs)
-                e7 = ((M - sigma) / F_ps * 100) if F_ps > 0 else 0
+        e7 = self._spectral_energy()
         results["e7"] = round(max(0, min(100, e7)), 2)
         self.e7_history.append(results["e7"])
 
@@ -347,10 +364,22 @@ class VibraimageCore:
 
         return results
 
+    def _trim_live_history(self):
+        """Keep a recent minute for live scores and bound continuous-session memory."""
+        limit = max(self.time_window, min(3600, int(max(.5, self.fps) * 60)))
+        names = ['vibration_energies', 'left_amplitudes', 'right_amplitudes',
+                 'left_max_freqs', 'right_max_freqs', 'frequency_data', 'power_spectrum']
+        names.extend(f'e{i}_history' for i in range(1, 15))
+        for name in names:
+            values = getattr(self, name)
+            if len(values) > limit:
+                del values[:-limit]
+
     def process_frame(self, frame, face_rect=None, fps=None):
         """实时处理单帧，返回当前计算的参数字典（如果已计算）"""
         if fps is not None:
             self.fps = fps
+        self._trim_live_history()
 
         # 第一帧处理人脸区域
         if self.first_frame:
