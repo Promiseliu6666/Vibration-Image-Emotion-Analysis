@@ -1,5 +1,16 @@
 import request from '@/utils/request'
 
+export function listAnalysisAlgorithms() {
+  return request({ url: '/video/algorithms', method: 'get' })
+}
+
+export function saveCameraAnalysis(cameraId, analysis) {
+  return request({
+    url: `/video/cameras/${encodeURIComponent(cameraId)}/analysis`,
+    method: 'put', data: analysis
+  })
+}
+
 export function listCameras(options = {}) {
   return request({
     url: '/video/cameras',

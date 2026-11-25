@@ -20,6 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from hik_vision.Vibration_image_algorithm import VibraimageCore
 from hik_vision.camera_contract import resolve_camera_selection, to_camera_id
+from hik_vision.camera_algorithms import ALGORITHMS, camera_algorithm_store
+from hik_vision.camera_bridge_config import get_camera_bridge_key
+from pydantic import BaseModel, Field
 from config.get_db import get_db
 from exceptions.exception import AuthException
 from module_admin.service.login_service import LoginService
@@ -230,17 +233,11 @@ def resolve_camera_source(source, device_id=''):
 stable_state_template=copy.deepcopy(stable_state['local'])
 resolve_camera_source('xiaozhi')
 
-_CAMERA_BRIDGE_KEY = Path(__file__).resolve().parents[2] / '.runtime/camera-bridge-secret.txt'
-
-
 def _camera_bridge_key():
     try:
-        key = _CAMERA_BRIDGE_KEY.read_text(encoding='utf-8').strip()
-    except (OSError, UnicodeError) as exc:
+        return get_camera_bridge_key()
+    except (OSError, ValueError, UnicodeError) as exc:
         raise HTTPException(503, '摄像头共享配置不可用') from exc
-    if not key:
-        raise HTTPException(503, '摄像头共享配置不可用')
-    return key
 
 
 async def _fetch_xiaozhi_devices():
@@ -807,7 +804,8 @@ async def generate_video_stream(
                                             print(f"[{source}] 跳过邮件发送：{reason}")
 
                 # 振动分析
-                if state["analyzing"] and not state["analysis_completed"] and face_rect is not None:
+                # Recording/archive completion must not stop continuous live scoring.
+                if state["analyzing"] and face_rect is not None:
                     try:
                         fps=max(.5,min(60.,fps))
                         analysis_results = await asyncio.to_thread(
@@ -821,7 +819,7 @@ async def generate_video_stream(
                     except Exception as e:
                         state['last_error']='本帧计算失败，正在等待有效画面';state['stage']='error'
                 if state['analyzing'] and not state['analysis_completed'] and not state.get('identified') and state.get('result_samples',0)>0 and time.time()-state['analysis_start_time']>=RECORD_DURATION:
-                    state['analysis_completed']=True;state['stage']='complete'
+                    state['analysis_completed']=True
 
 
                 frame_count += 1
@@ -870,16 +868,17 @@ async def get_analysis_results(
         state = stable_state[source]
         return {
             "camera_id": source,
-            "stage": 'complete' if state['analysis_completed'] else state.get('stage','searching'),
+            "stage": state.get('stage','searching'),
             "has_results": state.get('result_samples',0)>0,
             "result_samples": state.get('result_samples',0),
             "sample_frames": state.get('sample_frames',0),
             "stability_progress": state.get('stability_progress',0),
             "observed_fps": state.get('observed_fps',0),
             "identified": bool(state.get('identified')),
-            "message": ('分析完成，未匹配人员，不关联人员档案' if not state.get('identified') else '分析完成') if state['analysis_completed'] else state.get('last_error') or ('正在分析画面' if state.get('result_samples',0)>0 else '人脸已稳定，正在积累有效画面' if state['analyzing'] else '已检测到人脸，正在确认画面稳定' if state.get('stage')=='stabilizing' else '未检测到清晰人脸，请调整取景'),
+            "message": state.get('last_error') or ('持续评估中' if state.get('result_samples',0)>0 else '人脸已稳定，正在积累有效画面' if state['analyzing'] else '已检测到人脸，正在确认画面稳定' if state.get('stage')=='stabilizing' else '未检测到清晰人脸，请调整取景'),
             "analyzing": state["analyzing"],
-            "completed": state["analysis_completed"],
+            "completed": False,
+            "recording_completed": state["analysis_completed"],
             "recognizing": state.get("recognizing", False),
             "source": source,
             "results": {k: float(v) for k, v in latest_results[source].items()},
@@ -1007,11 +1006,46 @@ async def camera_catalog():
             'configured': True,
             'detail': '在线' if device.get('online') else '未出图',
         })
+    try:
+        for camera in cameras:
+            camera['analysis'] = camera_algorithm_store.get(camera['camera_id'])
+    except (ValueError, OSError) as exc:
+        raise HTTPException(503, '摄像头算法配置读取失败，请检查配置文件') from exc
     return {
         'cameras': cameras,
         'default_camera_id': 'local',
         'xiaozhi_error': xiaozhi_error,
     }
+
+
+class CameraAnalysisConfig(BaseModel):
+    algorithm_id: str | None = None
+    algorithm_ids: list[str] | None = None
+    scene: str = Field(min_length=1, max_length=80)
+    show_overlay: bool = False
+
+
+@videoController.get('/algorithms', dependencies=[Depends(_require_video_user)])
+async def analysis_algorithms():
+    return {'algorithms': ALGORITHMS}
+
+
+@videoController.put('/cameras/{camera_id}/analysis', dependencies=[Depends(_require_video_user)])
+async def save_camera_analysis(camera_id: str, config: CameraAnalysisConfig):
+    # Only assign actual registered devices, including currently offline Watchers.
+    catalog = await camera_catalog()
+    if camera_id not in {camera['camera_id'] for camera in catalog['cameras']}:
+        raise HTTPException(404, '摄像头不存在，请刷新摄像头列表')
+    try:
+        analysis = camera_algorithm_store.save(
+            camera_id, config.algorithm_ids if config.algorithm_ids is not None else config.algorithm_id,
+            config.scene, config.show_overlay,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(503, '摄像头算法配置保存失败，请检查目录写入权限') from exc
+    return {'camera_id': camera_id, 'analysis': analysis}
 
 
 @videoController.get('/xiaozhi/devices', dependencies=[Depends(_require_video_user)])

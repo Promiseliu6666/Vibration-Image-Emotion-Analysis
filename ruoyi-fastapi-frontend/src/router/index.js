@@ -26,7 +26,17 @@ import Layout from '@/layout'
 
 // 公共路由
 export const constantRoutes = [
+  {path:'/',redirect:'/algorithms',hidden:true},
   {path:'/camera/live',redirect:'/monitor/druid',hidden:true},
+  {path:'',component:Layout,redirect:'/algorithms',children:[
+    {path:'/algorithms',component:()=>import('@/views/algorithms/index.vue'),name:'AnalysisAlgorithms',meta:{title:'算法管理',icon:'list',noCache:true,affix:true}}
+  ]},
+  {path:'',component:Layout,redirect:'/algorithms',children:[
+    {path:'/cameras',component:()=>import('@/views/cameras/index.vue'),name:'CameraAssignments',meta:{title:'摄像头列表',icon:'monitor',noCache:true}}
+  ]},
+  {path:'',component:Layout,redirect:'/algorithms',hidden:true,children:[
+    {path:'/monitor/druid',component:()=>import('@/views/monitor/druid/index.vue'),name:'ConfiguredVideoMonitor',meta:{title:'视频监测',icon:'monitor',noCache:true}}
+  ]},
   {
     path: '/redirect',
     component: Layout,
@@ -59,21 +69,14 @@ export const constantRoutes = [
     hidden: true
   },
   {
-    path: '',
-    component: Layout,
-    redirect: '/index',
-    children: [
-      {
-        path: '/index',
-        component: () => import('@/views/binhua/analysis/index'),
-        name: 'Index',
-        meta: { title: '首页', icon: 'dashboard', affix: true }
-      }
-    ]
+    path: '/index',
+    redirect: '/algorithms',
+    hidden: true
   },
   {
     path: '',
     component: Layout,
+    redirect: '/algorithms',
     hidden: true,
     children: [
       {
@@ -92,7 +95,7 @@ export const constantRoutes = [
   {
     path: '',
     component: Layout,
-    redirect: 'noredirect',
+    redirect: '/algorithms',
     children: [
       {
         path: '/people',
@@ -105,7 +108,7 @@ export const constantRoutes = [
   {
     path: '',
     component: Layout,
-    redirect: 'noredirect',
+    redirect: '/algorithms',
     hidden: true,
     children: [
       {
@@ -119,7 +122,7 @@ export const constantRoutes = [
   {
     path: '',
     component: Layout,
-    redirect: 'noredirect',
+    redirect: '/algorithms',
     children: [
       {
         path: '/agent',

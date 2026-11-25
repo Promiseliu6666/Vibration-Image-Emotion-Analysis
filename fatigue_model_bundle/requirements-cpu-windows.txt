@@ -1,0 +1,11 @@
+# Windows CPU runtime for the bundled model interfaces.
+# With uv, pass --index-strategy unsafe-best-match for the additional CPU index.
+--extra-index-url https://download.pytorch.org/whl/cpu
+-r requirements.txt
+torch==2.6.0+cpu
+torchvision==0.21.0+cpu
+mediapipe==0.10.21
+numpy==1.26.4
+opencv-python==4.11.0.86
+opencv-contrib-python==4.11.0.86
+ultralytics<8.4

@@ -1,6 +1,10 @@
+import bcrypt
 from passlib.context import CryptContext
 
-pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
+# Legacy accounts may use PBKDF2; bcrypt uses its native implementation to
+# avoid passlib's incompatibility with recent bcrypt releases.
+pwd_context = CryptContext(schemes=['pbkdf2_sha256'], deprecated='auto')
+BCRYPT_PREFIXES = ('$2a$', '$2b$', '$2y$')
 
 
 class PwdUtil:
@@ -17,7 +21,18 @@ class PwdUtil:
         :param hashed_password: 数据库存储的密码
         :return: 校验结果
         """
-        return pwd_context.verify(plain_password, hashed_password)
+        if not isinstance(plain_password, str) or not isinstance(hashed_password, str):
+            return False
+        if not plain_password or not hashed_password:
+            return False
+        try:
+            if hashed_password.startswith(BCRYPT_PREFIXES):
+                return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+            return pwd_context.verify(plain_password, hashed_password)
+        except (ValueError, TypeError):
+            # UnknownHashError is a ValueError; malformed and unsupported
+            # stored hashes must produce an ordinary authentication failure.
+            return False
 
     @classmethod
     def get_password_hash(cls, input_password):
@@ -27,4 +42,4 @@ class PwdUtil:
         :param input_password: 输入的密码
         :return: 加密成功的密码
         """
-        return pwd_context.hash(input_password)
+        return bcrypt.hashpw(input_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
