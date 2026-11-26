@@ -1,5 +1,6 @@
 from pathlib import Path
 import os,socket,subprocess,time,shutil,json,urllib.error,urllib.request
+from mysql_service import ensure_mysql_service
 root=Path(__file__).resolve().parent
 desktop_launcher = root.parent / 'start_interactive_rest.py'
 if __name__ == '__main__' and desktop_launcher.is_file():
@@ -32,9 +33,9 @@ def listening(port):
 def http_ready(url):
  try:
   with urllib.request.urlopen(url,timeout=2) as response:
-   return response.status<500
- except urllib.error.HTTPError as exc:
-  return exc.code<500
+   return 200<=response.status<300
+ except urllib.error.HTTPError:
+  return False
  except OSError:
   return False
 
@@ -47,6 +48,12 @@ def launch(name,args,cwd,port):
  proc=subprocess.Popen([str(a) for a in args],cwd=cwd,stdout=out,stderr=err,creationflags=0x08000000)
  print(name,'started',proc.pid)
 
+def prepare_xiaozhi_runtime(project):
+ script=project/'prepare-portable.ps1'
+ if script.is_file() and (project/'.runtime/python/python.exe').is_file():
+  subprocess.run(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(script)],
+                 cwd=project,check=True,creationflags=0x08000000)
+
 db_port=int(config_value('DB_PORT','3306'));cache_port=int(config_value('REDIS_PORT','6379'))
 bundled_mysql=root/'.runtime/mariadb/bin/mariadbd.exe'
 bundled_cache=root/'.runtime/garnet/net10.0/GarnetServer.exe'
@@ -54,6 +61,9 @@ if db_port==13306 and bundled_mysql.exists():
  launch('mysql',[bundled_mysql,'--defaults-file='+str(root/'.runtime/data/my.ini'),'--bind-address=127.0.0.1','--port=13306'],root,13306)
 elif db_port==13306:
  raise FileNotFoundError('Bundled MySQL is missing; set DB_PORT to a running MySQL service.')
+if db_port==3306:
+ ensure_mysql_service(config_value('DB_HOST','127.0.0.1'),db_port,
+                      config_value('MYSQL_SERVICE_NAME','mysql'))
 if cache_port==16379 and bundled_cache.exists():
  launch('cache',[bundled_cache,'--port','16379','--bind','127.0.0.1'],root,16379)
 elif cache_port==16379:
@@ -71,6 +81,7 @@ xpython=x/'.venv/Scripts/python.exe'
 xmysql=x/'.runtime/mysql/bin/mysqld.exe'
 if not xconfig.exists() or not xpython.exists() or not xmysql.exists():
  raise FileNotFoundError(f'Xiaozhi runtime is incomplete: {x}')
+prepare_xiaozhi_runtime(x)
 xcfg=json.loads(xconfig.read_text(encoding='utf-8-sig'))
 xdb_port=int(xcfg['mysql_port'])
 launch('xiaozhi-mysql',[xmysql,'--no-defaults','--basedir=.','--datadir=../mysql-data','--bind-address=127.0.0.1',f'--port={xdb_port}','--mysqlx=0','--console'],x/'.runtime/mysql',xdb_port)

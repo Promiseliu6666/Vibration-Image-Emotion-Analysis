@@ -39,7 +39,7 @@ from module_xuzhou.controller.command_controller import message_callback, comman
 from module_xuzhou.controller.group_controller import group_controller
 from module_xuzhou.controller.people_controller import people_controller
 from module_xuzhou.controller.scene_controller import sceneController
-from module_xuzhou.controller.video_controller import videoController
+from module_xuzhou.controller.video_controller import videoController as videoManagementController
 from module_xuzhou.controller.analysis_controller import analysis_controller
 from module_xuzhou.controller.alarm_controller import alarmController
 from module_xuzhou.controller.fatigue_controller import fatigue_controller
@@ -115,7 +115,8 @@ controller_list = [
     {'router': configController, 'tags': ['系统管理-参数管理']},
     {'router': noticeController, 'tags': ['系统管理-通知公告管理']},
     {'router': logController, 'tags': ['系统管理-日志管理']},
-    {"router" : videoController,'tags': ['系统监控-数据监控']},
+    {"router" : videoManagementController,'tags': ['系统监控-数据监控']},
+    {'router': videoController, 'tags': ['实时摄像头分析']},
     {'router': onlineController, 'tags': ['系统监控-在线用户']},
     {'router': jobController, 'tags': ['系统监控-定时任务']},
     {'router': serverController, 'tags': ['系统监控-菜单管理']},

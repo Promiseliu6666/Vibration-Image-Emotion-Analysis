@@ -45,8 +45,7 @@ export default defineConfig(({ mode, command }) => {
         // Swagger UI 静态资源代理
         '/static/swagger-ui': {
           target: 'http://127.0.0.1:9099',
-          changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/static/, '/dev-api/dev-api/static')
+          changeOrigin: true
         },
         '/dev-api': {
           target: 'http://127.0.0.1:9099',
