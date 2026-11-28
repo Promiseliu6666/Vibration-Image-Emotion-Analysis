@@ -1,13 +1,13 @@
 import {nextTick,onBeforeUnmount,onMounted,ref} from 'vue'
 
 // Use the actual content offset, including the navigation and open page tabs.
-export function useMonitorViewport(element,enabled=true){
+export function useMonitorViewport(element,enabled=true,bottomGap=8){
   const height=ref('calc(100dvh - 84px)')
   let observer
   function measure(){
     if(!element.value) return
     const offset=element.value.getBoundingClientRect().top + window.scrollY
-    height.value=`${Math.max(280,window.innerHeight-Math.max(0,offset)-8)}px`
+    height.value=`${Math.max(280,window.innerHeight-Math.max(0,offset)-bottomGap)}px`
   }
   onMounted(async()=>{
     if(!enabled) return

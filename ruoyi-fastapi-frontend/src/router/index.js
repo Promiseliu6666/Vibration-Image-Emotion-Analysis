@@ -26,16 +26,15 @@ import Layout from '@/layout'
 
 // 公共路由
 export const constantRoutes = [
-  {path:'/',redirect:'/algorithms',hidden:true},
+  {path:'/',redirect:'/monitor/druid',hidden:true},
   {path:'/camera/live',redirect:'/monitor/druid',hidden:true},
-  {path:'',component:Layout,redirect:'/algorithms',children:[
-    {path:'/algorithms',component:()=>import('@/views/algorithms/index.vue'),name:'AnalysisAlgorithms',meta:{title:'算法管理',icon:'list',noCache:true,affix:true}}
+  {path:'/camera/overview',redirect:'/monitor/druid',hidden:true},
+  {path:'',component:Layout,redirect:'/monitor/druid',children:[
+    {path:'/monitor/druid',component:()=>import('@/views/monitor/druid/index.vue'),name:'ConfiguredVideoMonitor',meta:{title:'实时监测',icon:'monitor',noCache:true,affix:true}}
   ]},
-  {path:'',component:Layout,redirect:'/algorithms',children:[
-    {path:'/cameras',component:()=>import('@/views/cameras/index.vue'),name:'CameraAssignments',meta:{title:'摄像头列表',icon:'monitor',noCache:true}}
-  ]},
-  {path:'',component:Layout,redirect:'/algorithms',hidden:true,children:[
-    {path:'/monitor/druid',component:()=>import('@/views/monitor/druid/index.vue'),name:'ConfiguredVideoMonitor',meta:{title:'视频监测',icon:'monitor',noCache:true}}
+  {path:'',component:Layout,redirect:'/monitor/druid',alwaysShow:true,meta:{title:'监测配置',icon:'tool'},children:[
+    {path:'/cameras',component:()=>import('@/views/cameras/index.vue'),name:'CameraAssignments',meta:{title:'设备配置',icon:'monitor',noCache:true}},
+    {path:'/algorithms',component:()=>import('@/views/algorithms/index.vue'),name:'AnalysisAlgorithms',meta:{title:'算法配置',icon:'list',noCache:true}}
   ]},
   {
     path: '/redirect',
@@ -70,13 +69,13 @@ export const constantRoutes = [
   },
   {
     path: '/index',
-    redirect: '/algorithms',
+    redirect: '/monitor/druid',
     hidden: true
   },
   {
     path: '',
     component: Layout,
-    redirect: '/algorithms',
+    redirect: '/monitor/druid',
     hidden: true,
     children: [
       {
@@ -95,7 +94,7 @@ export const constantRoutes = [
   {
     path: '',
     component: Layout,
-    redirect: '/algorithms',
+    redirect: '/monitor/druid',
     children: [
       {
         path: '/people',
@@ -108,7 +107,7 @@ export const constantRoutes = [
   {
     path: '',
     component: Layout,
-    redirect: '/algorithms',
+    redirect: '/monitor/druid',
     hidden: true,
     children: [
       {
@@ -122,7 +121,7 @@ export const constantRoutes = [
   {
     path: '',
     component: Layout,
-    redirect: '/algorithms',
+    redirect: '/monitor/druid',
     children: [
       {
         path: '/agent',

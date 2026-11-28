@@ -1,6 +1,6 @@
 <template>
- <section class="xiaozhi-workspace" :aria-busy="loading">
-  <div class="xiaozhi-camera-bar">
+ <section class="xiaozhi-workspace" :class="{ 'xiaozhi-workspace--detection': detectDevices }" :aria-busy="loading">
+  <div v-if="!detectDevices" class="xiaozhi-camera-bar">
    <div class="xiaozhi-camera-bar__copy">
     <span>CAMERA ROUTE</span>
     <small>切换摄像头后自动重连监测画面</small>
@@ -28,12 +28,16 @@ import CameraSwitcher from '@/components/CameraSwitcher/index.vue'
 import useCameraStore from '@/store/modules/camera'
 import { CAMERA_STORAGE_KEY, toCameraId, toXiaozhiDeviceId } from '@/utils/camera'
 
+const props = defineProps({ detectDevices: Boolean })
+const emit = defineEmits(['detected', 'close'])
 const route = useRoute(), router = useRouter()
 const cameraStore = useCameraStore()
 const frame = ref(null), frameUrl = ref(''), loading = ref(true), error = ref(''), loginRequired = ref(false)
 // This client intentionally has no shared notification interceptor. The page
 // displays one actionable connection error instead of a second generic toast.
-const client = axios.create({ baseURL: import.meta.env.VITE_APP_BASE_API, timeout: 12000 })
+// The backend allows 12 seconds for Xiaozhi, in addition to validating the main
+// login session. Leave time for its actionable error response to reach the UI.
+const client = axios.create({ baseURL: import.meta.env.VITE_APP_BASE_API, timeout: 20000 })
 const origin = 'http://127.0.0.1:8000'
 let token = null, attempt = 0, timeout = null, controller = null, disposed = false
 
@@ -74,7 +78,7 @@ async function connect() {
   }
   token = data.token
   const view = ['live','history','analytics','settings'].includes(route.meta.xiaozhiView) ? route.meta.xiaozhiView : 'live'
-  frameUrl.value = `${origin}/static/portal-bridge.html?portal=${encodeURIComponent(location.origin)}&embedded=health&view=${encodeURIComponent(view)}`
+  frameUrl.value = `${origin}/static/portal-bridge.html?portal=${encodeURIComponent(location.origin)}&embedded=health&view=${encodeURIComponent(view)}${props.detectDevices ? '&action=detect-device' : ''}`
   timeout = setTimeout(() => {
    if (!disposed && id === attempt && loading.value) fail('小智页面连接超时，请确认小智后台服务正在运行，再重新连接。')
   }, 20000)
@@ -88,6 +92,12 @@ async function connect() {
 function frameFailed(event) { if (event?.target !== frame.value) return; if (!disposed && loading.value) fail('小智页面未能加载，请检查小智后台服务后重新连接。') }
 function receive(event) {
  if (disposed || event.origin !== origin || event.source !== frame.value?.contentWindow) return
+ if (props.detectDevices && event.data?.type === 'xiaozhi-device-detected') {
+  const deviceId = event.data.deviceId
+  if (typeof deviceId === 'string' && toCameraId('xiaozhi', deviceId) === `xiaozhi:${deviceId}` && !deviceId.startsWith('vibration-')) emit('detected', deviceId)
+  return
+ }
+ if (props.detectDevices && event.data?.type === 'xiaozhi-detection-closed') { emit('close'); return }
  if (event.data?.type === 'employee-bridge-expired' && frameUrl.value) {
   fail('小智会话已失效，请重新连接小智。')
   return
@@ -109,6 +119,7 @@ function goLogin() {
 let cameraWatchReady = false
 onMounted(async () => {
  window.addEventListener('message', receive)
+ if (props.detectDevices) { connect(); return }
  try { await cameraStore.loadXiaozhiDevices(false, true) } catch {}
  if (disposed) return
  const routeCamera = new URLSearchParams(location.search).get('camera')
@@ -131,6 +142,7 @@ onBeforeUnmount(() => {
 .xiaozhi-camera-bar{display:flex;min-height:58px;box-sizing:border-box;align-items:center;justify-content:space-between;gap:18px;padding:8px 18px;background:rgba(255,255,255,.72);border-bottom:1px solid rgba(209,221,232,.8);backdrop-filter:blur(10px)}
 .xiaozhi-camera-bar__copy{display:flex;min-width:0;flex-direction:column;gap:2px}.xiaozhi-camera-bar__copy span{color:#7a8999;font-size:10px;font-weight:700;letter-spacing:.16em}.xiaozhi-camera-bar__copy small{color:#596b7e;font-size:12px}
 .xiaozhi-frame{display:block;width:100%;height:calc(100vh - 152px);border:0;background:#f4f7fb}
+.xiaozhi-workspace--detection{min-height:480px}.xiaozhi-workspace--detection .xiaozhi-frame{height:min(560px,65vh);min-height:400px}.xiaozhi-workspace--detection .xiaozhi-loading{inset:24px 16px auto}
 .xiaozhi-loading{position:absolute;inset:94px 24px auto;color:#6d8095;font-size:14px;text-align:center;padding:30px}
 .xiaozhi-error{padding:28px}.xiaozhi-error-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}.xiaozhi-error-actions .el-button+.el-button{margin-left:0}
 @media(max-width:640px){.xiaozhi-camera-bar{align-items:stretch;flex-direction:column;padding:10px 14px}.xiaozhi-camera-bar__copy small{display:none}}

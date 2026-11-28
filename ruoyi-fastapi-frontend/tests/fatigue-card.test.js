@@ -12,7 +12,7 @@ compileScript(descriptor, { id: 'fatigue-card' })
 const { code } = compile(descriptor.template.content, { mode: 'function', prefixIdentifiers: true })
 const render = new Function('Vue', code)(Vue)
 async function card(result = {}, error = '') {
-  return renderToString(Vue.createSSRApp({ render, setup: () => ({ result, error, resetting: false, view: present(result, error) }) }))
+  return renderToString(Vue.createSSRApp({ render, setup: () => ({ result, error, resetting: false, showMetricHelp: false, view: present(result, error) }) }))
 }
 test('incomplete collection never displays process mechanics or a safe zero', async () => {
   const result = { warmup_progress: 264, warmup_target: 720, feature_buffer: 0, feature_target: 30 }
@@ -51,7 +51,9 @@ test('error and missing face suppress stale scores without exposing internal err
 })
 test('all grades and boundaries stay visible while pending', async () => {
   const html = await card()
-  for (const text of ['清醒', '轻度疲劳', '明显疲劳', '0–&lt;45', '45–70', '&gt;70', '重新检测', '分值越高，疲劳程度越高。']) assert.ok(html.includes(text), text)
+  for (const text of ['清醒', '轻度疲劳', '明显疲劳', '0–&lt;45', '45–70', '&gt;70', '重新检测', '指标说明']) assert.ok(html.includes(text), text)
+  assert.match(html, /aria-expanded="false"/)
+  assert.doesNotMatch(html, /分值越高，疲劳程度越高。/)
 })
 
 test('supporting indicators show actual percentages and keep missing data neutral', async () => {

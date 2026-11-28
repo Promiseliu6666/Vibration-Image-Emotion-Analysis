@@ -27,6 +27,7 @@ const useCameraStore = defineStore('camera', {
     cameraId: readInitialCameraId(),
     cameraCatalog: [],
     algorithms: [],
+    analysisRevisions: {},
     xiaozhiDevices: [],
     devicesLoaded: false,
     loadingDevices: false,
@@ -118,6 +119,7 @@ const useCameraStore = defineStore('camera', {
       const response = await saveCameraAnalysis(cameraId, analysis)
       const camera = this.cameraCatalog.find(item => item.camera_id === cameraId)
       if (camera) camera.analysis = response.analysis
+      this.analysisRevisions[cameraId] = (this.analysisRevisions[cameraId] || 0) + 1
       return response.analysis
     },
     selectCamera(cameraId, persist = true) {
@@ -139,10 +141,16 @@ const useCameraStore = defineStore('camera', {
 
       this.loadingDevices = true
       this.deviceError = ''
+      const requestedRevisions = { ...this.analysisRevisions }
       devicesRequest = listCameras({ silent: quiet })
         .then(response => {
           this.cameraCatalog = Array.isArray(response?.cameras)
-            ? response.cameras
+            ? response.cameras.map(camera => {
+                // A device refresh may have begun before a successful save.
+                const current = this.cameraCatalog.find(item => item.camera_id === camera.camera_id)
+                return current && this.analysisRevisions[camera.camera_id] !== requestedRevisions[camera.camera_id]
+                  ? { ...camera, analysis: current.analysis } : camera
+              })
             : []
           this.xiaozhiDevices = this.cameraCatalog
             .filter(camera => camera.source === 'xiaozhi')

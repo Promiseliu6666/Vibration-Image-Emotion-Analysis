@@ -1,11 +1,12 @@
 import request from '@/utils/request'
 
 // 查询算法列表
-export function listAlgorithm(query) {
+export function listAlgorithm(query, options = {}) {
   return request({
     url: '/xuzhou/algorithm/list',
     method: 'get',
-    params: query
+    params: query,
+    silent: options.silent === true
   })
 }
 

@@ -1,8 +1,24 @@
 <template>
-  <section class="fatigue-card" :class="`is-${view.tone}`" aria-label="疲劳度">
+  <section class="fatigue-card" :class="`is-${view.tone}`" aria-label="疲劳度" @keydown.esc="showMetricHelp = false">
+    <header class="assessment-toolbar">
+      <h3>疲劳指数综合评估</h3>
+      <div class="assessment-tools">
+        <button type="button" class="monitor-action-button" :disabled="resetting" @click="$emit('restart')">{{ resetting ? '正在重置…' : '重新检测' }}</button>
+        <button type="button" class="monitor-info-button" :aria-expanded="showMetricHelp" @click="showMetricHelp = !showMetricHelp">
+          <span class="info-symbol" aria-hidden="true">?</span>指标说明<span class="disclosure-chevron" aria-hidden="true" :class="{ 'is-open': showMetricHelp }"></span>
+        </button>
+      </div>
+    <section v-if="showMetricHelp" class="metric-explanation" aria-label="指标说明">
+      <h4>疲劳状态指标说明</h4>
+      <p><strong>疲劳度</strong><span>分值越高，疲劳程度越高。</span></p>
+      <p><strong>行为指标</strong><span>统计近期眼口变化；张口也可能来自说话。</span></p>
+      <p><strong>信号完整度</strong><span>反映姿态识别质量，不代表疲劳程度。</span></p>
+    </section>
+    </header>
+    <div class="fatigue-main">
     <article class="fatigue-overview">
       <header class="overview-heading">
-        <h3>疲劳指数综合评估</h3>
+        <span class="overview-label">疲劳程度</span>
         <span class="status-tag">{{ view.title }}</span>
       </header>
       <div class="score-display" aria-live="polite">
@@ -38,25 +54,21 @@
         </div>
       </div>
     </article>
-
-    <section class="metric-explanation" aria-label="指标说明">
-      <h4>指标说明</h4>
-      <p><strong>疲劳度</strong><span>分值越高，疲劳程度越高。</span></p>
-      <p><strong>行为指标</strong><span>统计近期眼口变化；张口也可能来自说话。</span></p>
-      <p><strong>信号完整度</strong><span>反映姿态识别质量，不代表疲劳程度。</span></p>
-    </section>
-    <footer><span>实时监测 · 持续评估</span><button type="button" :disabled="resetting" @click="$emit('restart')">{{ resetting ? '正在重置…' : '重新检测' }}</button></footer>
+    </div>
   </section>
 </template>
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { fatiguePresentation } from '../../utils/fatiguePresentation.js'
 const props = defineProps({ result: { type: Object, default: () => ({}) }, error: { type: String, default: '' }, resetting: Boolean })
 defineEmits(['restart'])
 const view = computed(() => fatiguePresentation(props.result, props.error))
+const showMetricHelp = ref(false)
 </script>
 <style scoped>
 .fatigue-card{--accent:#20846b;--soft:#eaf6f0;display:flex;flex-direction:column;gap:12px;min-height:100%;width:100%;box-sizing:border-box;color:#20364d;font-family:inherit}
+.fatigue-main{display:flex;flex-direction:column;flex:1;gap:12px;min-height:0}
+.overview-label{font-size:13px;line-height:22px;color:#6a8099}
 .is-drowsy{--accent:#b97a20;--soft:#fff5e6}.is-fatigued{--accent:#ce5158;--soft:#fceff0}.is-pending,.is-error{--accent:#8798ad;--soft:#f0f3f7}
 h3,h4,p{margin:0}.fatigue-overview{padding:16px 18px;border:1px solid #e2eaf4;border-radius:12px;background:linear-gradient(140deg,#f4f8ff,#fff 75%);flex-shrink:0}
 .overview-heading,.behavior-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.overview-heading h3,.behavior-heading h3{font-size:14px;font-weight:650;line-height:22px}.status-tag{color:var(--accent);background:var(--soft);border:1px solid color-mix(in srgb,var(--accent) 20%,transparent);font-size:11px;font-weight:600;line-height:20px;padding:1px 9px;border-radius:5px;white-space:nowrap}
@@ -65,12 +77,13 @@ h3,h4,p{margin:0}.fatigue-overview{padding:16px 18px;border:1px solid #e2eaf4;bo
 .grade-band{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:9px}.grade{--grade:#20846b;display:flex;align-items:center;gap:4px;color:#7d8c9f;font-size:10px;line-height:16px;white-space:nowrap}.grade.drowsy{--grade:#b97a20}.grade.fatigued{--grade:#ce5158}.grade>i{width:5px;height:5px;background:var(--grade);border-radius:50%;flex-shrink:0}.grade strong{font-size:10px;font-weight:500}.grade span{font-size:9px;color:#99a6b6}.grade.active strong{color:var(--grade);font-weight:700}.assessment-hint{font-size:11px;line-height:18px;color:#7b8ca2;margin-top:8px}
 .event-counts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;border-top:1px solid #e5edf5;padding-top:11px}.event-counts>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px}.event-counts>div+div{border-left:1px solid #e1e9f2}.event-counts span{color:#7b8ca2;font-size:11px}.event-counts strong{font-size:22px;font-weight:650;line-height:24px;font-variant-numeric:tabular-nums}.event-counts small{font-size:10px;font-weight:400;color:#91a0b3;margin-left:5px}
 .behavior-panel{display:flex;flex-direction:column;flex:1;border:1px solid #e5edf5;border-radius:10px;padding:12px 14px;min-height:176px}.behavior-heading{margin-bottom:7px}.face-state{display:flex;align-items:center;gap:5px;font-size:10px;color:#91a0b3;white-space:nowrap}.face-state>i{width:5px;height:5px;border-radius:50%;background:#a0aec0}.face-state.detected>i{background:#279977}.metric-list{flex:1;display:flex;flex-direction:column;justify-content:space-around;gap:8px}.metric-row{display:grid;grid-template-columns:100px minmax(30px,1fr) 50px;gap:10px;align-items:center;min-height:20px}.metric-label{font-size:11px;color:#60758f}.metric-track{height:7px;background:#edf2f8;border-radius:5px;overflow:hidden}.metric-track>div{height:100%;border-radius:5px;background:linear-gradient(90deg,#93b8eb,#548bd2);transition:width .4s ease}.metric-row strong{font-size:11px;font-weight:600;color:#3c597c;text-align:right;font-variant-numeric:tabular-nums}.metric-row.is-missing strong{color:#a5b0be}
-.metric-explanation{background:#f8fafc;border:1px solid #e5edf5;border-radius:9px;padding:10px 12px;flex-shrink:0}.metric-explanation h4{font-size:11px;font-weight:650;color:#3f5771;margin-bottom:6px}.metric-explanation p{display:flex;gap:8px;font-size:10px;line-height:18px;color:#7b8b9f}.metric-explanation strong{font-weight:500;color:#5c7087;flex-shrink:0}
-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}footer>span{font-size:10px;color:#98a6b7}footer button{border:1px solid #d9e3f0;border-radius:5px;padding:5px 10px;background:#fff;color:#426b9e;font:inherit;font-size:11px;line-height:18px;cursor:pointer}footer button:hover{border-color:#4778b8}footer button:focus-visible{outline:2px solid #4778b8;outline-offset:2px}footer button:disabled{opacity:.55;cursor:wait}
+.assessment-toolbar{position:relative}
+.metric-explanation{position:absolute;z-index:5;top:calc(100% + 5px);right:0;left:0;max-height:min(340px,50vh);overflow:auto;box-sizing:border-box;background:#fff;border:1px solid #e5edf5;border-radius:9px;padding:10px 12px;box-shadow:0 8px 24px #20364d24}.metric-explanation h4{font-size:11px;font-weight:650;color:#3f5771;margin-bottom:6px}.metric-explanation p{display:flex;gap:8px;font-size:10px;line-height:18px;color:#7b8b9f}.metric-explanation strong{font-weight:500;color:#5c7087;flex-shrink:0}
 @media(max-height:1000px){.fatigue-card{gap:8px}.fatigue-overview{padding:12px 14px}.score-display{margin:8px 0}.score-display>strong{font-size:40px}.event-counts{margin-top:8px;padding-top:8px}.behavior-panel{padding:9px 12px;min-height:156px}.metric-list{gap:5px}.metric-explanation{padding:7px 10px}.metric-explanation h4{margin-bottom:3px}.metric-explanation p{line-height:16px}}
 @media(max-width:380px){.metric-row{grid-template-columns:90px minmax(20px,1fr) 44px;gap:7px}.grade{flex-wrap:wrap}.grade span{width:100%;padding-left:9px}.behavior-heading{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.score-fill,.metric-track>div{transition:none}}
 </style>
+<style scoped src="@/assets/styles/monitor-assessment.css"></style>
 <style scoped>
 @media(max-height:1000px){
   .fatigue-card{gap:5px}
@@ -93,7 +106,6 @@ footer{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
   .metric-explanation{padding:5px 10px}
   .metric-explanation h4{line-height:14px;margin-bottom:3px}
   .metric-explanation p{line-height:14px}
-  footer button{padding:2px 8px}
 }
 </style>
 

@@ -776,6 +776,7 @@ function handleVisibilityChange() {
   else startPolling()
 }
 
+watch(() => props.showOverlay, value => { showBoxes.value = value })
 watch(sourceQuery, () => {
   showBoxes.value = props.showOverlay
   resetController?.abort()

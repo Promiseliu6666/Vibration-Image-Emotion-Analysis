@@ -17,7 +17,8 @@ if(window.parent!==window&&portalOrigin){
   else document.cookie='Admin-Token='+encodeURIComponent(e.data.token)+'; path=/; SameSite=Lax';
   parent.postMessage({type:'employee-bridge-complete'},portalOrigin);
   const view=['live','history','analytics','settings'].includes(params.get('view'))?params.get('view'):'live';
-  location.replace(xiaozhi?'/static/dashboard.html'+(embedded?'?embedded=health&portal='+encodeURIComponent(portalOrigin)+'&view='+view+'#'+view:''):'/camera/live');
+  const action=params.get('action')==='detect-device'?'&action=detect-device':'';
+  location.replace(xiaozhi?'/static/dashboard.html'+(embedded?'?embedded=health&portal='+encodeURIComponent(portalOrigin)+'&view='+view+action+'#'+view:''):'/camera/live');
  });
  parent.postMessage({type:'employee-bridge-ready'},portalOrigin);
 }else document.querySelector('p').textContent='请从健康监测平台进入此项目。';

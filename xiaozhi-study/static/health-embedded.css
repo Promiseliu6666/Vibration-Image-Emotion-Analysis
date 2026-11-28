@@ -17,3 +17,7 @@ body.health-embedded,body.health-embedded *{font-family:"Microsoft YaHei","Segoe
 body.health-embedded details:has(#studyTaskForm),body.health-embedded [id*="assistant"],body.health-embedded [class*="assistant-"]{display:none!important}
 body.health-embedded button.primary{background:#3165d7!important;border-color:#3165d7!important}
 body.health-embedded .badge.good{background:#edf3ff!important;color:#3567b3!important}
+/* Only the existing device wizard is visible inside the main monitor dialog. */
+body.health-device-detection>main{display:none!important}
+body.health-device-detection #wizard{position:fixed;inset:0;margin:0;width:100%;max-width:none;max-height:100%;min-height:100%;box-sizing:border-box;border:0;border-radius:0;padding:20px;box-shadow:none;background:#f4f7fb}
+body.health-device-detection #wizard::backdrop{background:#f4f7fb}

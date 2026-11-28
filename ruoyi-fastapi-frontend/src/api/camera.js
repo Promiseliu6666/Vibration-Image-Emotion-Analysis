@@ -1,7 +1,11 @@
 import request from '@/utils/request'
 
 export function listAnalysisAlgorithms() {
-  return request({ url: '/video/algorithms', method: 'get' })
+  return request({ url: '/video/algorithms', method: 'get', silent: true })
+}
+
+export function getFatigueServiceStatus() {
+  return request({ url: '/fatigue/status', method: 'get', timeout: 5000, silent: true })
 }
 
 export function saveCameraAnalysis(cameraId, analysis) {

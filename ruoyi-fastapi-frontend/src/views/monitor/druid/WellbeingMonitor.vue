@@ -1,7 +1,7 @@
 <template>
-  <div class="vibra-monitor">
+  <div class="vibra-monitor" :class="{ 'results-only': resultsOnly }">
     <!-- 标题与控制栏 -->
-    <div class="header">
+    <div v-if="!resultsOnly" class="header">
       <h2>实时画面</h2>
       <div class="controls">
         <div class="control-group">
@@ -20,7 +20,7 @@
       </div>
     </div>
 
-    <div v-if="cameraSource==='xiaozhi'" class="xiaozhi-source-bar">
+    <div v-if="!resultsOnly && cameraSource==='xiaozhi'" class="xiaozhi-source-bar">
       <span>小智设备</span>
       <el-checkbox v-model="parallelPreview">并行预览</el-checkbox>
       <span>{{ xiaozhiSourceError || '仅使用小智原始画面，不会切换为本机摄像头' }}</span>
@@ -32,7 +32,7 @@
     <!-- 主内容区 -->
     <div class="main-content">
       <!-- 左侧：视频流 -->
-      <div v-if="viewActive" class="video-section">
+      <div v-if="viewActive && !resultsOnly" class="video-section">
         <div v-if="cameraSource==='xiaozhi'&&parallelPreview" class="parallel-cameras">
           <div v-for="device in xiaozhiDevices" :key="device.device_id" class="parallel-camera" :class="{selected:xiaozhiDevice===device.device_id}" @click="xiaozhiDevice=device.device_id">
             <header><strong>{{ device.name }}</strong><span>{{ device.online?'在线':'未出图' }}</span></header>
@@ -78,45 +78,58 @@
 
       <!-- 右侧：参数面板 -->
       <div class="params-section">
-        <MonitorPanel :algorithm-ids="algorithmIds" :notifications-visible="emailStatus !== 'idle'">
+        <MonitorPanel :algorithm-ids="algorithmIds" :notifications-visible="emailStatus !== 'idle'" :active-metric="activeMetric" :hide-tabs="hideMetricTabs">
           <template #psychological>
         <div class="params-panel">
-          <!-- 人员信息卡片（强制显示） -->
-          <details class="person-details" open><summary>人员信息 <span>{{ personInfo.name || '未识别' }}</span></summary>
-          <div class="person-card">
-            <div class="person-header">
+          <section class="person-details" aria-label="人员信息">
+            <header class="person-header">
               <el-icon><User /></el-icon>
-              <h4>识别人员信息</h4>
-              <!-- 分析完成标识 -->
-              <el-tag v-if="hasAnalysisResults" type="success" size="small">持续评估中</el-tag>
-            </div>
+              <h4>人员信息</h4>
+            </header>
             <div class="person-content">
               <div class="person-item">
-                <span class="person-label">人员ID：</span>
-                <span class="person-value">{{ personInfo.id || '未知ID' }}</span>
+                <span class="person-label">姓名</span>
+                <span class="person-value person-name">{{ personInfo.name || '未识别' }}</span>
               </div>
               <div class="person-item">
-                <span class="person-label">人员姓名：</span>
-                <span class="person-value">{{ personInfo.name || '未识别' }}</span>
+                <span class="person-label">人员 ID</span>
+                <span class="person-value">{{ personInfo.id || '—' }}</span>
               </div>
               <div class="person-item">
-                <span class="person-label">匹配相似度：</span>
-                <span class="person-value">{{ (personInfo.similarity || 0) * 100 | numberFormat }}%</span>
+                <span class="person-label">匹配相似度</span>
+                <span class="person-value">{{ personInfo.id ? `${((personInfo.similarity || 0) * 100).toFixed(1)}%` : '—' }}</span>
               </div>
               <div class="person-item">
-                <span class="person-label">识别时间：</span>
-                <span class="person-value">{{ personInfo.recognizeTime || new Date().toLocaleString() }}</span>
+                <span class="person-label">识别时间</span>
+                <span class="person-value">{{ personInfo.recognizeTime || '—' }}</span>
               </div>
             </div>
-          </div>
-          </details>
+          </section>
+
+          <div class="psychological-main" @keydown.esc="showMetricHelp = false">
+            <header class="psychological-heading">
+              <h3>{{ isShowE1E10 ? '基础生理参数 (e1-e14)' : hasAnalysisResults ? '幸福指数综合评估' : '实时监测数据' }}</h3>
+              <div class="assessment-tools">
+                <el-button class="assessment-details-button" type="primary" size="small" @click="toggleParamView">{{ isShowE1E10 ? '返回评估' : '详情' }}</el-button>
+                <button type="button" class="monitor-info-button" :aria-expanded="showMetricHelp" @click="showMetricHelp = !showMetricHelp">
+                  <span class="info-symbol" aria-hidden="true">?</span>指标说明
+                </button>
+              </div>
+            <section v-if="showMetricHelp" class="wellbeing-tips" aria-label="指标说明">
+              <h4>指标说明</h4>
+              <ul>
+                <li><strong>幸福指数</strong><span>1–100 分，越高表示心理状态越好。</span></li>
+                <li><strong>幸福等级</strong><span>≥80 达标；60–&lt;80 待提升；&lt;60 预警。</span></li>
+                <li><strong>安全风险</strong><span>≥70 低；40–&lt;70 中；&lt;40 高。</span></li>
+                <li><strong>检测规则</strong><span>人脸稳定后分析，身份匹配后关联档案。</span></li>
+              </ul>
+            </section>
+            </header>
 
           <!-- 幸福指数卡片 -->
           <div v-if="!isShowE1E10 && hasAnalysisResults" class="psychological-results">
             <div class="wellbeing-card">
-              <div class="wellbeing-header">
-                <h3>幸福指数综合评估</h3>
-                <div class="wellbeing-status">
+                <div v-if="!resultsOnly" class="wellbeing-status">
                   <el-tag :type="getHappinessTagType(wellbeingResults.happiness_level)" size="small">
                     {{ wellbeingResults.happiness_level }}
                   </el-tag>
@@ -124,12 +137,10 @@
                     {{ wellbeingResults.safety_risk_level }}
                   </el-tag>
                 </div>
-                <el-button class="assessment-details-button" type="primary" size="small" @click="toggleParamView">详情</el-button>
-              </div>
               <div class="wellbeing-content">
                 <div class="index-display">
                   <div class="index-value">{{ wellbeingResults.happiness_index.toFixed(1) }}</div>
-                  <div class="index-label">幸福指数</div>
+                  <div v-if="!resultsOnly" class="index-label">幸福指数</div>
                   <div class="index-progress">
                     <div
                       class="progress-fill"
@@ -154,25 +165,14 @@
                 </div>
               </div>
             </div>
-            <section class="wellbeing-tips" aria-label="指标说明">
-              <h4>指标说明</h4>
-              <ul>
-                <li><strong>幸福指数</strong><span>1–100 分，越高表示心理状态越好。</span></li>
-                <li><strong>幸福等级</strong><span>≥80 达标；60–&lt;80 待提升；&lt;60 预警。</span></li>
-                <li><strong>安全风险</strong><span>≥70 低；40–&lt;70 中；&lt;40 高。</span></li>
-                <li><strong>检测规则</strong><span>人脸稳定后分析，身份匹配后关联档案。</span></li>
-              </ul>
-            </section>
           </div>
 
           <!-- 无数据提示 -->
           <div v-if="!isShowE1E10 && !hasAnalysisResults">
             <div class="panel-header">
-              <h3>实时监测数据</h3>
               <el-tag :type="isAnalyzing ? 'success' : 'info'" size="small">
                 {{ isAnalyzing ? '分析进行中' : '等待分析' }}
               </el-tag>
-              <el-button class="assessment-details-button" type="primary" size="small" @click="toggleParamView">详情</el-button>
             </div>
             <div v-if="!isAnalyzing" class="no-analysis-tip">
               <el-alert
@@ -195,13 +195,11 @@
           </div>
 
           <!-- e1-e14参数视图 -->
-          <div v-if="isShowE1E10">
+          <div v-if="isShowE1E10" class="psychological-details">
             <div class="panel-header">
-              <h3>基础生理参数 (e1-e14)</h3>
               <el-tag type="info" size="small">
                 持续评估中
               </el-tag>
-              <el-button class="assessment-details-button" type="primary" size="small" @click="toggleParamView">收起</el-button>
             </div>
             <div class="param-list" v-if="isAnalyzing">
               <div v-for="param in paramConfig" :key="param.key" class="param-item">
@@ -240,6 +238,7 @@
               </div>
             </div>
           </div>
+          </div>
         </div>
           </template>
           <template #fatigue><slot name="fatigue" /></template>
@@ -268,7 +267,7 @@ import useCameraStore from '@/store/modules/camera'
 import { cameraQueryString, toCameraId } from '@/utils/camera'
 import { Message, Refresh, User } from '@element-plus/icons-vue'
 
-const props = defineProps({algorithmIds:{type:Array,default:()=>['vibration']}})
+const props = defineProps({algorithmIds:{type:Array,default:()=>['vibration']},resultsOnly:Boolean,signalAvailable:{type:Boolean,default:true},activeMetric:{type:String,default:''},hideMetricTabs:Boolean})
 const baseURL = import.meta.env.VITE_APP_BASE_API || '/dev-api'
 
 // ==================== 状态管理 ====================
@@ -329,6 +328,7 @@ let pendingResults
 let reconnectTimer
 
 const isShowE1E10 = ref(false)
+const showMetricHelp = ref(false)
 
 // 人员信息（默认值）
 const personInfo = ref({
@@ -512,7 +512,7 @@ const fetchResults = async (query, signal) => {
     })
     if (!res.ok) return
     const data = await res.json()
-    if (signal.aborted || query !== sourceQuery.value) return
+    if (signal.aborted || query !== sourceQuery.value || !props.signalAvailable) return
 
     // 更新分析状态
     isAnalyzing.value = data.analyzing || false
@@ -572,7 +572,7 @@ const stopPolling = () => {
 
 const startPolling = () => {
   stopPolling()
-  if (!sourceQuery.value || document.hidden || !viewActive.value || showConnectionTip.value) return
+  if (!sourceQuery.value || document.hidden || !viewActive.value || showConnectionTip.value || !props.signalAvailable) return
   const controller = new AbortController()
   const query = sourceQuery.value
   pendingResults = controller
@@ -597,6 +597,7 @@ const resetVisibleState = () => {
   showConnectionTip.value = false
   videoStatus.value = sourceQuery.value ? 'connecting' : 'waiting'
   statusText.value = sourceQuery.value ? '正在连接所选摄像头…' : '等待选择小智设备'
+  if (!props.signalAvailable) analysisMessage.value = '振动分析暂时不可用，摄像头画面仍可查看。'
 }
 
 const resetParams = () => {
@@ -611,6 +612,7 @@ const resetParams = () => {
   startPolling()
 }
 
+watch(() => props.signalAvailable, () => { resetVisibleState(); startPolling() })
 watch([sourceQuery, parallelPreview], () => {
   resetVisibleState()
   startPolling()
@@ -652,61 +654,72 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.vibra-monitor.results-only { padding:0;min-width:0;max-width:none;width:100%;height:100%;min-height:0;background:transparent; }
+.vibra-monitor.results-only .main-content { display:block;height:100%;min-height:0; }
+.vibra-monitor.results-only .params-section { width:100%;max-width:none;min-width:0;height:100%;min-height:0;overflow:hidden; }
 /* 人员信息卡片 */
-.person-card {
-  background: linear-gradient(135deg, #f0f8ff 0%, #e8f4f8 100%);
+.person-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 16px 12px;
+  background: #f7fafd;
+  border: 1px solid #e2eaf4;
   border-radius: 12px;
-  padding: 16px 20px;
-  margin-bottom: 16px;
-  border: 1px solid #dee2e6;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .person-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px dashed #dee2e6;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e2eaf4;
 }
 
 .person-header h4 {
   margin: 0;
-  color: #2c3e50;
-  font-size: 1.1em;
+  color: #294664;
+  font-size: 14px;
+  line-height: 24px;
   font-weight: 600;
 }
 
 .person-header .el-icon {
-  color: #3b82f6;
-  font-size: 1.2em;
+  color: #526c88;
+  font-size: 16px;
 }
 
 .person-content {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  flex: 1;
+  gap: 20px;
 }
 
 .person-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .person-label {
-  font-size: 0.85em;
-  color: #6c757d;
-  font-weight: 500;
+  font-size: 12px;
+  line-height: 20px;
+  color: #7b8ca2;
 }
 
 .person-value {
-  font-size: 0.95em;
-  color: #2c3e50;
+  font-size: 13px;
+  line-height: 22px;
+  color: #294664;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
+.person-name { font-size:15px; }
 
 /* 分析完成标签 */
 .completed-tag {
@@ -865,21 +878,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(200, 220, 255, 0.5);
   color: #1e293b;
-}
-
-.wellbeing-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.wellbeing-header h3 {
-  color: #1e293b;
-  font-size: 1.25em;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  margin: 0;
 }
 
 .index-display {
@@ -1230,33 +1228,17 @@ onBeforeUnmount(() => {
 .params-section .email-feedback__heading time { font-size:10px; }
 .params-section .email-feedback__body p { margin:5px 0 0; font-size:11px; line-height:1.6; }
 .params-section .email-feedback__heading h3,.params-section .email-feedback__body p { white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.wellbeing-tips summary { cursor:pointer;color:#526c88;font-size:12px;font-weight:600; }
-.wellbeing-tips:not([open]) { padding:10px 12px;margin:12px 0 0; }
 .params-section .email-feedback { padding:8px 10px; }
 .email-feedback__summary { display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;font-size:11px;list-style:none; }
 .email-feedback__summary::-webkit-details-marker { display:none; }
 .email-feedback[open] .email-feedback__body { padding-top:8px; }
-.person-details { margin-bottom:8px;border:1px solid #e5ebf2;border-radius:9px;padding:8px 10px;background:#f7fafd; }
-.person-details > summary { cursor:pointer;font-size:11px;color:#6e8095; }
-.person-details > summary span { float:right;color:#294664;font-weight:600; }
-.person-details[open] .person-card { margin-top:8px; }
-.params-panel .wellbeing-card { padding:14px 16px;margin-bottom:8px;box-shadow:none; }
-.params-panel .wellbeing-header { margin-bottom:10px;gap:8px; }
-.params-panel .wellbeing-header h3 { font-size:14px; }
 .params-panel .index-display { margin-bottom:12px; }
 .params-panel .index-value { font-size:44px;line-height:1.15;margin-bottom:3px; }
 .params-panel .index-label { font-size:12px;margin-bottom:8px; }
 .params-panel .index-progress { height:8px; }
 .params-panel .level-item { gap:3px; }
 .params-panel .level-value { padding:3px 8px; }
-.params-panel .wellbeing-tips:not([open]) { padding:7px 10px;margin-top:8px; }
-.params-section .params-panel { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-content:start; }
-.params-panel > .person-details { margin:0; }
-.params-panel > .switch-btn-container { margin:0;align-items:center;align-self:start;min-width:56px; }
-.params-panel > div:not(.switch-btn-container) { grid-column:1 / -1; }
 @media(max-height:740px){
-  .params-panel .wellbeing-card { padding:12px 14px; }
-  .params-panel .wellbeing-header { margin-bottom:7px; }
   .params-panel .index-value { font-size:40px!important; }
   .params-panel .index-display { margin-bottom:8px; }
 }
@@ -1424,48 +1406,35 @@ onBeforeUnmount(() => {
 .parallel-cameras{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}.parallel-camera{border:2px solid #dce5f0;border-radius:8px;overflow:hidden;background:#14202c;cursor:pointer}.parallel-camera.selected{border-color:#409eff}.parallel-camera header{display:flex;justify-content:space-between;gap:10px;padding:12px;background:#fff;font-size:13px;color:#334d68}.parallel-camera header span{font-size:12px;color:#74899a}.parallel-camera img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain}.camera-offline{aspect-ratio:4/3;display:grid;place-items:center;text-align:center;padding:20px;color:#b7c8d7;font-size:13px;line-height:1.8}.parallel-camera footer{padding:10px;background:#f2f7fc;color:#44718f;font-size:12px}@media(max-width:1000px){.parallel-cameras{grid-template-columns:1fr}}
 </style>
 <style scoped>
-/* Keep the identity header anchored; let the result and explanation fill the panel. */
-.params-section .params-panel{flex:1;min-height:100%;grid-template-rows:auto 1fr;align-content:stretch;row-gap:12px}
-.params-panel>.psychological-results{display:flex;flex-direction:column;gap:12px;min-height:0}
-.params-panel .psychological-results .wellbeing-card{flex:1.2;display:flex;flex-direction:column;justify-content:center;margin:0;min-height:190px}
-.params-panel .psychological-results .wellbeing-tips{flex:1;display:flex;flex-direction:column;justify-content:center;padding:16px 18px;margin:0}
-.psychological-results .wellbeing-tips h4{font-size:14px;line-height:22px;margin-bottom:10px}
-.psychological-results .wellbeing-tips ul{display:flex;flex-direction:column;gap:8px}
-.psychological-results .wellbeing-tips li{font-size:13px;line-height:1.8;gap:10px;margin:0;align-items:baseline;color:#687e98}
-.psychological-results .wellbeing-tips li strong{font-size:13px;color:#415c7b}
-@media(max-height:800px){
-  .params-section .params-panel{row-gap:6px}
-  .params-panel>.psychological-results{gap:6px}
-  .params-panel .person-details{padding:6px 8px}
-  .params-panel .person-header{margin-bottom:5px;padding-bottom:5px}
-  .params-panel .person-item{flex-direction:row;gap:3px;flex-wrap:wrap}
-  .params-panel .psychological-results .wellbeing-card{min-height:140px;padding:9px 12px}
-  .params-panel .psychological-results .wellbeing-header{margin-bottom:5px}
-  .params-panel .psychological-results .index-display{margin-bottom:6px}
-  .params-panel .psychological-results .index-value{font-size:34px!important}
-  .params-panel .psychological-results .index-label{margin-bottom:5px}
-  .params-panel .psychological-results .wellbeing-tips{padding:8px 10px}
-  .psychological-results .wellbeing-tips h4{font-size:13px;line-height:18px;margin-bottom:4px}
-  .psychological-results .wellbeing-tips ul{gap:3px}
-  .psychological-results .wellbeing-tips li,.psychological-results .wellbeing-tips li strong{font-size:12px;line-height:1.5}
+.params-section .params-panel{display:grid;grid-template-columns:minmax(112px,.7fr) minmax(0,1.6fr);gap:12px;min-height:100%;align-items:stretch}
+.psychological-main{display:flex;flex-direction:column;gap:12px;min-width:0;min-height:0;height:100%;box-sizing:border-box;padding:12px;border:1px solid #e2eaf4;border-radius:12px;background:linear-gradient(140deg,#f4f8ff,#fff 75%);container:psychological-assessment / inline-size}
+.psychological-heading{position:relative;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;flex-shrink:0}
+.psychological-heading h3{margin:0;color:#20364d;font-size:16px;font-weight:650;line-height:24px;overflow-wrap:anywhere}
+.psychological-heading .assessment-tools{margin-left:auto;flex-wrap:nowrap}
+.psychological-heading .monitor-info-button{padding:3px 7px;min-height:28px}
+.psychological-main .psychological-results{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
+.psychological-main .wellbeing-card{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent}
+.psychological-main .wellbeing-content{display:flex;flex-direction:column;justify-content:center;flex:1;gap:clamp(12px,3cqh,24px);min-height:0}
+.psychological-main .index-display{margin:0}
+.psychological-main .index-value{margin-bottom:16px}
+.psychological-main .level-indicators{gap:12px}
+.psychological-main .level-value{min-width:0;max-width:100%;box-sizing:border-box}
+.psychological-main .wellbeing-status{display:flex;flex-wrap:wrap;gap:6px}
+.psychological-main .wellbeing-tips{position:absolute;z-index:5;top:calc(100% + 8px);right:0;width:100%;box-sizing:border-box;max-height:min(340px,50cqh);overflow:auto;margin:0;padding:12px;border-left:3px solid #a9c6e4;box-shadow:0 8px 24px #20364d24;background:#fff}
+.psychological-main .wellbeing-tips h4{font-size:13px;line-height:22px;margin-bottom:8px}
+.psychological-main .wellbeing-tips ul{display:flex;flex-direction:column;gap:7px}
+.psychological-main .wellbeing-tips li{flex-wrap:wrap;gap:2px 8px;font-size:13px;line-height:1.7;margin:0;color:#687e98}
+.psychological-main .wellbeing-tips li strong{font-size:13px;color:#415c7b}
+.assessment-details-button{flex-shrink:0;height:28px}
+.psychological-details{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.psychological-details .panel-header{margin-bottom:8px}
+.psychological-details .param-list{flex:none;overflow:visible;margin-bottom:0;padding-right:0}
+.psychological-details .tips{margin-top:12px;padding:10px;font-size:12px;line-height:1.7}
+@container psychological-assessment (max-width:210px){.psychological-main .level-indicators{flex-direction:column;gap:14px}}
+@container psychological-assessment (max-width:280px){
+  .psychological-main .param-item{flex-direction:column;align-items:stretch;gap:6px}
+  .psychological-main .param-label{display:flex;align-items:baseline;gap:8px;width:auto}
+  .psychological-main .progress-wrapper{min-width:0}
 }
 </style>
-<style scoped>
-@media(min-height:801px) and (max-height:1000px){
-  .params-section .params-panel{row-gap:10px}
-  .params-panel>.psychological-results{gap:10px}
-  .params-panel .psychological-results .wellbeing-card{min-height:165px;padding:12px 14px}
-  .params-panel .psychological-results .index-display{margin-bottom:8px}
-  .params-panel .psychological-results .index-value{font-size:40px!important}
-  .params-panel .psychological-results .wellbeing-tips{padding:12px 14px}
-  .psychological-results .wellbeing-tips ul{gap:4px}
-}
-</style>
-<style scoped>
-.params-section .params-panel{grid-template-columns:minmax(0,1fr)}
-.params-panel>.person-details{grid-column:1 / -1;width:100%;box-sizing:border-box}
-.assessment-details-button{flex-shrink:0;margin-left:auto}
-.params-panel .wellbeing-header{align-items:center;flex-wrap:wrap}
-.params-panel .wellbeing-status{margin-left:auto}
-.params-panel .wellbeing-header .assessment-details-button{margin-left:0}
-</style>
+<style scoped src="@/assets/styles/monitor-assessment.css"></style>

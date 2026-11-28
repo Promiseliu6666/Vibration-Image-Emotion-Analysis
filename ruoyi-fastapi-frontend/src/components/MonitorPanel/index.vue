@@ -1,12 +1,12 @@
 <template>
   <section class="monitor-panel" aria-label="实时状态监测">
-    <header class="monitor-panel__heading">
+    <header v-if="!hideTabs" class="monitor-panel__heading">
       <div class="monitor-tabs" role="tablist" aria-label="监测指标类型">
         <button v-for="tab in tabs" :key="tab.id" :ref="element => tabRefs[tab.id] = element"
           type="button" role="tab" :id="`${panelId}-tab-${tab.id}`"
           :aria-selected="activeId === tab.id" :aria-controls="`${panelId}-${tab.id}`"
           :tabindex="activeId === tab.id ? 0 : -1" :class="{ 'is-active':activeId === tab.id }"
-          @click="activeId = tab.id" @keydown="navigate($event, tab.id)">
+          @click="selectTab(tab.id)" @keydown="navigate($event, tab.id)">
           <svg class="monitor-tabs__icon" viewBox="0 0 24 24" aria-hidden="true">
             <path v-if="tab.id === 'vibration'" d="M3 12h4l2.5-6 5 12 2.5-6h4" />
             <template v-else><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.5" /></template>
@@ -18,12 +18,12 @@
     <div class="monitor-panel__body">
       <div v-if="algorithmIds.includes('vibration')" v-show="activeId === 'vibration'"
         class="monitor-panel__psychological"
-        :id="`${panelId}-vibration`" role="tabpanel" :aria-labelledby="`${panelId}-tab-vibration`">
+        :id="`${panelId}-vibration`" role="tabpanel" :aria-labelledby="hideTabs ? undefined : `${panelId}-tab-vibration`" :aria-label="hideTabs ? '心理状态' : undefined">
         <slot name="psychological" />
       </div>
       <div v-if="algorithmIds.includes('fatigue')" v-show="activeId === 'fatigue'"
         class="monitor-panel__fatigue"
-        :id="`${panelId}-fatigue`" role="tabpanel" :aria-labelledby="`${panelId}-tab-fatigue`">
+        :id="`${panelId}-fatigue`" role="tabpanel" :aria-labelledby="hideTabs ? undefined : `${panelId}-tab-fatigue`" :aria-label="hideTabs ? '疲劳状态' : undefined">
         <slot name="fatigue" />
       </div>
     </div>
@@ -35,22 +35,25 @@
 
 <script setup>
 import {computed,getCurrentInstance,ref,watch} from 'vue'
-const props=defineProps({algorithmIds:{type:Array,default:()=>['vibration']},notificationsVisible:Boolean})
+const props=defineProps({algorithmIds:{type:Array,default:()=>['vibration']},notificationsVisible:Boolean,activeMetric:{type:String,default:''},hideTabs:Boolean})
+const emit=defineEmits(['update:activeMetric'])
 const panelId=`monitor-${getCurrentInstance().uid}`
-const activeId=ref(props.algorithmIds[0] || 'vibration')
+const activeId=ref(props.algorithmIds.includes(props.activeMetric) ? props.activeMetric : props.algorithmIds[0] || 'vibration')
 const tabRefs=ref({})
 const tabs=computed(()=>[
   {id:'vibration',label:'心理状态'},
   {id:'fatigue',label:'疲劳状态'}
 ].filter(tab=>props.algorithmIds.includes(tab.id)))
 watch(()=>props.algorithmIds.slice(),ids=>{if(!ids.includes(activeId.value)) activeId.value=ids[0]})
+watch(()=>props.activeMetric,id=>{if(props.algorithmIds.includes(id)) activeId.value=id})
+function selectTab(id){activeId.value=id;emit('update:activeMetric',id)}
 function navigate(event,id){
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return
   event.preventDefault()
   const current=tabs.value.findIndex(tab=>tab.id===id)
   const index=event.key==='Home'?0:event.key==='End'?tabs.value.length-1:
     (current+(event.key==='ArrowRight'?1:-1)+tabs.value.length)%tabs.value.length
-  activeId.value=tabs.value[index].id
+  selectTab(tabs.value[index].id)
   tabRefs.value[activeId.value]?.focus()
 }
 </script>
